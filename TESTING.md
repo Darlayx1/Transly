@@ -29,10 +29,19 @@ Push GitHub memerlukan login akun Darlayx1 atau koneksi GitHub yang terautentika
 
 ## Pemeriksaan production
 
-Setelah deployment, periksa URL yang dikembalikan Sites dan jalankan:
+Deployment Sites berstatus **succeeded** dan URL [Transly](https://transly-studio.adikagung32.chatgpt.site/) telah dibuka di browser pada 8 Oktober 2026. Halaman tampil, stylesheet termuat, tidak ada blank page, error console penting, atau horizontal overflow pada viewport desktop. Cookie key uji disimpan dan dihapus lewat UI production. `SESSION_SECRET` telah dikonfigurasi sebagai secret runtime; `GEMINI_API_KEY` shared tidak digunakan. Credential uji tidak ada lagi pada sesi browser.
+
+HTTP smoke pada URL production lulus seluruhnya:
+
+- Endpoint status tersedia dan tidak mengembalikan plaintext key.
+- Cookie credential `HttpOnly` dan `Secure` pada HTTPS.
+- Google menolak key uji yang tidak valid dan aplikasi menampilkan kode `INVALID_KEY` aman.
+- Penghapusan cookie dan penolakan permintaan lintas origin bekerja.
+
+Ulangi pemeriksaan HTTP kapan saja dengan:
 
 ```sh
-node tests/http-smoke.mjs https://URL-PRODUCTION
+node tests/http-smoke.mjs https://transly-studio.adikagung32.chatgpt.site
 ```
 
-Lanjutkan uji browser pada URL production, lalu masukkan key aktif melalui Pengaturan AI untuk menguji generate, submit, dan evaluasi nyata. Jangan mengklaim Definition of Done penuh sebelum langkah AI dan push GitHub berhasil.
+Masukkan key aktif melalui Pengaturan AI untuk menguji generate, submit, dan evaluasi nyata. Jangan mengklaim Definition of Done penuh sebelum langkah AI dan push GitHub berhasil.
