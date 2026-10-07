@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+const base=process.argv[2]||'http://127.0.0.1:5173';
+const fake='transly-invalid-test-key-not-a-real-credential';
+const request=(url,body,cookie,method='POST')=>fetch(base+url,{method,headers:{'content-type':'application/json',...(cookie?{cookie}:{})},...(body!==undefined?{body:JSON.stringify(body)}:{})});
+const status=await request('/api/credentials',undefined,undefined,'GET');assert.equal(status.status,200);console.log('PASS credential status available');
+const saved=await request('/api/credentials',{generator:fake,evaluator:fake});assert.equal(saved.status,200);const cookie=saved.headers.get('set-cookie');assert(cookie.includes('HttpOnly'));assert(!cookie.includes(fake));if(base.startsWith('https:'))assert(cookie.includes('Secure'));console.log('PASS encrypted HttpOnly credential cookie');
+const ready=await request('/api/credentials',undefined,cookie.split(';')[0],'GET');const data=await ready.json();assert(data.generator&&data.evaluator);assert(!JSON.stringify(data).includes(fake));console.log('PASS status returns no credential');
+const bad=await request('/api/generate',{level:'B1',length:'short',duration:5,topic:'General',style:'Neutral',generator:'gemini-3.8-flash',evaluator:'gemini-3.8-flash'},cookie.split(';')[0]);const err=await bad.json();assert.equal(bad.status,401);assert.equal(err.error.code,'INVALID_KEY');assert(!JSON.stringify(err).includes(fake));console.log('PASS real provider rejects invalid key with safe actionable error');
+const removed=await request('/api/credentials',{},cookie.split(';')[0],'DELETE');assert.equal(removed.status,200);assert(removed.headers.get('set-cookie').includes('Max-Age=0'));console.log('PASS credential deletion');
+const cross=await fetch(base+'/api/generate',{method:'POST',headers:{origin:'https://untrusted.example','content-type':'application/json'},body:'{}'});assert.equal(cross.status,403);console.log('PASS cross-origin rejected');

@@ -1,0 +1,20 @@
+'use client';
+import { useEffect, useState } from 'react';
+import { Clock3, Check, Send, BookOpen, Feather, SlidersHorizontal } from 'lucide-react';
+import type { PracticeSession } from '@/lib/transly/schema';
+import { countWords } from '@/lib/transly/config';
+
+export function Practice({ session, onAnswer, onSubmit, onSettings, storageFailed }: { session: PracticeSession; onAnswer: (s: string) => void; onSubmit: () => void; onSettings: () => void; storageFailed: boolean }) {
+  const [now, setNow] = useState(Date.now()); const [tab, setTab] = useState<'source' | 'editor'>('source');
+  useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 250); return () => clearInterval(timer); }, []);
+  const remaining = Math.max(0, Math.ceil((session.deadline - now) / 1000)); const expired = remaining === 0;
+  const total = session.config.duration * 60; const words = countWords(session.answer);
+  return <main className="practice-main"><div className="workspace-heading"><div><div className="eyebrow">RUANG LATIHAN <span className="pill">{session.config.level}</span></div><h1>{session.challenge.title}</h1><p className="muted">{session.challenge.topic} <span>·</span> {session.challenge.style} <span>·</span> {countWords(session.challenge.sourceText)} kata</p></div><div className={`timer ${remaining <= 60 ? 'urgent' : ''}`} role="timer" aria-label={`${Math.floor(remaining / 60)} menit ${remaining % 60} detik tersisa`}><Clock3 size={21}/><div><b>{String(Math.floor(remaining / 60)).padStart(2, '0')}<span>:</span>{String(remaining % 60).padStart(2, '0')}</b><small>{expired ? 'Waktu selesai' : 'Waktu tersisa'}</small></div></div></div>
+    <div className="time-progress" aria-label="Waktu pengerjaan"><div style={{ width: `${Math.min(100, (total - remaining) / total * 100)}%` }}/></div>
+    {expired && <div className="time-ended" role="status">Waktu latihan selesai. Jawabanmu tersimpan dan siap dievaluasi.</div>}
+    <div className="mobile-tabs"><button className={tab === 'source' ? 'active' : ''} onClick={() => setTab('source')}><BookOpen size={16}/>Teks sumber</button><button className={tab === 'editor' ? 'active' : ''} onClick={() => setTab('editor')}><Feather size={16}/>Terjemahanmu</button></div>
+    <div className="workspace-grid"><section className={`source-pane ${tab === 'source' ? 'mobile-active' : ''}`}><div className="pane-head"><span><BookOpen size={17}/>Teks sumber</span><span className="language-tag">ENGLISH</span></div><div className="source-text prose">{session.challenge.sourceText}</div><div className="source-note">Pahami maksudnya terlebih dahulu. Kamu tidak harus menerjemahkan kata demi kata.</div><button className="secondary-button mobile-editor-button" onClick={() => setTab('editor')}><Feather size={16}/>Mulai menulis</button></section>
+    <section className={`editor-pane ${tab === 'editor' ? 'mobile-active' : ''}`}><div className="pane-head"><label htmlFor="translation"><Feather size={17}/>Terjemahanmu</label><span className="language-tag">INDONESIA</span></div><textarea id="translation" value={session.answer} onChange={e => onAnswer(e.target.value)} readOnly={expired} maxLength={16000} placeholder="Tulis terjemahan bahasa Indonesia di sini…" spellCheck lang="id" aria-describedby="editor-status"/><div className="editor-meta" id="editor-status"><span>{storageFailed ? 'Draft hanya tersimpan selama tab terbuka' : <><Check size={14}/>Draft tersimpan di perangkat ini</>}</span><span>{words} kata · {session.answer.length}/16.000</span></div></section></div>
+    <div className="workspace-footer"><p>Siap ditinjau? AI akan mengevaluasi makna dan kualitas bahasamu.</p><div><button className="icon-button" onClick={onSettings} aria-label="Pengaturan evaluator"><SlidersHorizontal size={20}/></button><button className="primary-button" onClick={onSubmit}><Send size={17}/>Kirim terjemahan</button></div></div>
+  </main>;
+}
