@@ -15,6 +15,7 @@ Aplikasi latihan menerjemahkan bahasa Inggris ke bahasa Indonesia. AI menyusun s
 - Highlight Suggestion, Minor, Major, Fatal; popover desktop; filter kategori.
 - Structured JSON dan Zod; perbaikan offset berdasarkan kutipan persis; penanda ambigu/bertumpuk ditolak.
 - Error API key, quota, rate limit, model, timeout, network, invalid JSON, dan server; tombol coba lagi menjaga draft.
+- Alur sampel tanpa API: teks B2, jawaban contoh, skor ilustratif, empat tingkat highlight, dan feedback. Skor sampel hanya berlaku untuk jawaban contoh; tulisan bebas tetap memerlukan AI.
 
 ## Teknologi dan struktur
 
@@ -30,6 +31,7 @@ lib/transly/config.ts        katalog model dan konfigurasi
 lib/transly/schema.ts        validasi dan normalisasi highlight
 lib/transly/output-schema.ts JSON schema untuk provider
 lib/transly/server.ts        enkripsi, provider, error, throttling
+lib/transly/sample.ts        alur contoh tanpa API
 build/sites-worker.ts        Worker entrypoint dan security headers
 tests/run.mjs                pengujian validasi/security/provider
 ```
@@ -85,7 +87,7 @@ Build menghasilkan `dist/server/index.js` sebagai Worker dan `dist/client` sebag
 
 Site ini menggunakan Sites. `.openai/hosting.json` menyimpan identitas Site, bukan secret. Dari sesi Codex dengan plugin Sites, gunakan skill `sites-hosting` untuk push source, mengemas build, menyimpan versi, dan deploy. Atur `SESSION_SECRET` sebagai runtime secret melalui Sites sebelum deploy. Akses publik telah diminta untuk aplikasi ini. Jalankan pemeriksaan URL production dan flow AI dengan key aktif setelah publikasi.
 
-Deployment aktif: [transly-studio.adikagung32.chatgpt.site](https://transly-studio.adikagung32.chatgpt.site/). Aset, route aplikasi, penyimpanan key, dan penanganan key invalid telah diperiksa di production. Generate dan evaluasi sukses memerlukan key Google AI aktif yang dimasukkan melalui Pengaturan AI.
+Deployment aktif: [transly-studio.adikagung32.chatgpt.site](https://transly-studio.adikagung32.chatgpt.site/). Aset, route aplikasi, penyimpanan key, dan penanganan key invalid telah diperiksa di production. Generate dan evaluasi sukses telah diuji dengan key pengguna pada Gemini 3.5 Flash. Model lain tetap bergantung pada akses dan ketersediaan provider.
 
 Untuk Cloudflare Workers langsung, build dan deploy konfigurasi `dist/server/wrangler.json` memakai akun Cloudflare Anda, lalu konfigurasi runtime secret:
 

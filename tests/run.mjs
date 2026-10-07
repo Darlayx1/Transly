@@ -7,12 +7,13 @@ import ts from 'typescript';
 // Compile the exact source into an ignored folder. Only the platform env import
 // is adapted; provider responses are mocked and never impersonate live AI.
 const dir = path.resolve('.sites-runtime/tests'); await mkdir(dir, { recursive: true });
-for (const name of ['config', 'schema', 'server']) {
-  const source = (await readFile(`lib/transly/${name}.ts`, 'utf8')).replace("from './config'", "from './config.js'").replace("import { env } from 'cloudflare:workers';", 'const env = {};');
+for (const name of ['config', 'schema', 'server', 'sample']) {
+  const source = (await readFile(`lib/transly/${name}.ts`, 'utf8')).replace("from './config'", "from './config.js'").replace("from './schema'", "from './schema.js'").replace("import { env } from 'cloudflare:workers';", 'const env = {};');
   await writeFile(path.join(dir, `${name}.js`), ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText);
 }
 const { normalizeEvaluation } = await import(pathToFileURL(path.join(dir, 'schema.js')));
 const server = await import(pathToFileURL(path.join(dir, 'server.js')));
+const sample = await import(pathToFileURL(path.join(dir, 'sample.js')));
 const raw = { overallScore: 80, summaryFeedback: 'Pertahankan makna sumber.', strengths: ['Konteks jelas.'], weaknesses: ['Periksa negasi.'], sourceText: 'ignored', userTranslation: 'ignored', idealTranslation: 'Saya tidak pergi.', categoryScores: { accuracy: 80, grammar: 80, wordChoice: 80, naturalness: 80, completeness: 80, style: 80 }, annotations: [] };
 const ann = (quote, start = 99, severity = 'major') => ({ start, end: start + quote.length, originalText: quote, severity, explanation: 'Makna berbeda.', context: 'Sumber menggunakan negasi.', suggestion: 'Pertahankan negasi.', improvedText: 'tidak pergi' });
 let passed = 0;
@@ -22,6 +23,17 @@ await test('discard ambiguous quotes, invalid severity and overlaps', () => { co
 await test('all four severities retain exact boundaries', () => { const text = 'saran kecil besar kritis'; const r = normalizeEvaluation({ ...raw, annotations: ['suggestion','minor','major','fatal'].map((s,i)=>ann(text.split(' ')[i],99,s)) }, 'source', text); assert.equal(r.annotations.length,4); for(const a of r.annotations) assert.equal(text.slice(a.start,a.end),a.originalText); });
 await test('reject incomplete evaluations and scores outside range', () => { assert.throws(() => normalizeEvaluation({ ...raw, overallScore: 101 }, 'source', 'answer')); assert.throws(() => normalizeEvaluation({ annotations: [] }, 'source', 'answer')); });
 await test('empty answer has no fabricated spans', () => { assert.equal(normalizeEvaluation({ ...raw, annotations: [ann('missing')] }, 'source', '').annotations.length, 0); });
+await test('sample annotations cover exact non-overlapping spans in all four severities', () => {
+  assert.equal(sample.sampleEvaluation.userTranslation, sample.sampleAnswer);
+  assert.equal(sample.sampleEvaluation.sourceText, sample.sampleChallenge.sourceText);
+  assert.deepEqual(sample.sampleEvaluation.annotations.map(a => a.severity), ['minor', 'major', 'fatal', 'suggestion']);
+  let end = 0;
+  for (const a of sample.sampleEvaluation.annotations) {
+    assert(a.start >= end);
+    assert.equal(sample.sampleAnswer.slice(a.start, a.end), a.originalText);
+    end = a.end;
+  }
+});
 process.env.SESSION_SECRET = 'test-only-value-not-a-real-secret-12345678';
 await test('cookie encrypts credentials, is HttpOnly, secure and round-trips', async () => { const req = new Request('https://transly.test/api/credentials'); const cookie = await server.credentialCookie(req,'test-key-generator-123456','test-key-evaluator-123456'); assert(!cookie.includes('test-key')); assert(cookie.includes('HttpOnly')); assert(cookie.includes('Secure')); assert(cookie.includes('SameSite=Strict')); const result = await server.readCredentials(new Request(req.url,{headers:{cookie:cookie.split(';')[0]}})); assert.equal(result.generator,'test-key-generator-123456'); const bad = await server.readCredentials(new Request(req.url,{headers:{cookie:cookie.split(';')[0]+'corrupt'}})); assert.equal(bad,null); });
 await test('reject cross-origin and oversized requests', async () => { await assert.rejects(server.readBody(new Request('https://transly.test/api/generate',{method:'POST',headers:{origin:'https://other.test','content-type':'application/json'},body:'{}'})),e=>e.status===403); await assert.rejects(server.readBody(new Request('https://transly.test/api/generate',{method:'POST',headers:{'content-type':'application/json'},body:'x'.repeat(60001)})),e=>e.status===413); });

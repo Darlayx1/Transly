@@ -24,7 +24,7 @@ export const evaluationSchema = z.object({
   annotations: z.array(annotationSchema).max(80), annotationWarnings: z.number().optional(),
 });
 export type Evaluation = z.infer<typeof evaluationSchema>;
-export const sessionSchema = z.object({ config: configSchema, challenge: challengeSchema, answer: z.string().max(16000), deadline: z.number(), startedAt: z.number(), result: evaluationSchema.optional() });
+export const sessionSchema = z.object({ config: configSchema, challenge: challengeSchema, answer: z.string().max(16000), deadline: z.number(), startedAt: z.number(), result: evaluationSchema.optional(), sample: z.boolean().optional() });
 export type PracticeSession = z.infer<typeof sessionSchema>;
 
 // AI offsets often count code points instead of JavaScript UTF-16 units. Exact

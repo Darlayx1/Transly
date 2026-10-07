@@ -6,7 +6,7 @@ Tanggal: 8 Oktober 2026 (Asia/Makassar).
 
 - TypeScript strict (`tsc --noEmit`).
 - Build production Cloudflare Worker dan aset client.
-- 15 tes validasi/provider/security (`npm test`).
+- 16 tes validasi/provider/security dan ketepatan span sampel (`npm test`).
 - HTTP smoke: status credential, cookie AES-GCM HttpOnly, status tanpa plaintext key, penolakan key invalid oleh Google sungguhan, penghapusan cookie, dan penolakan cross-origin (`node tests/http-smoke.mjs`).
 - UI konfigurasi: level B2, custom topic, generator Gemini 3.7 dan evaluator Gemma 31B dipilih independen.
 - UI editor: mengetik, navigasi beranda/sesi, refresh, pemulihan draft, serta tab baca/tulis mobile.
@@ -18,12 +18,14 @@ Tanggal: 8 Oktober 2026 (Asia/Makassar).
 - Versi ideal menjelaskan bahwa alternatif benar tetap valid.
 - Tidak ada horizontal overflow pada lebar 320, 375, 768, 1280, dan 1440 piksel.
 - Tidak ada console error/warning penting pada browser preview.
+- Alur sampel tanpa API: jawaban contoh dapat dipulihkan, perubahan jawaban ditolak untuk skor ilustratif, empat severity tampil, dan bottom sheet berfungsi pada lebar 320 piksel tanpa horizontal overflow.
+- Panggilan AI production dengan key pengguna: Gemini 3.5 Flash membuat teks B1 79 kata dan mengevaluasi terjemahan lengkap menjadi skor 98/100, feedback, tiga penanda Suggestion, popover, dan versi ideal.
 
 ## Batas verifikasi
 
-UI evaluasi menggunakan fixture yang ditandai sebagai data uji lokal, bukan hasil AI sungguhan. Fixture tidak masuk build atau repository. Tes provider otomatis memakai respons simulasi. HTTP smoke melakukan permintaan Google nyata dengan key palsu khusus pengujian untuk menguji kegagalan; ini tidak memvalidasi generate/evaluasi sukses dengan key aktif.
+Tes provider otomatis memakai respons simulasi. HTTP smoke melakukan permintaan Google nyata dengan key palsu khusus pengujian untuk menguji kegagalan. Alur sampel yang dipublikasikan adalah demonstrasi eksplisit, bukan penilaian AI untuk tulisan bebas.
 
-Panggilan AI sukses dari awal hingga akhir memerlukan API key Google AI aktif dari user. Tidak ada key tersebut yang tersedia pada saat pembangunan. Ketersediaan masing-masing model bergantung pada akun/provider; daftar model tidak menjamin semua model dapat diakses oleh setiap key.
+Gemini 3.8 Flash menghasilkan error provider pada satu percobaan production; Gemini 3.5 Flash berhasil untuk generator dan evaluator dengan key yang sama. Ketersediaan masing-masing model bergantung pada akun/provider; daftar model tidak menjamin semua model dapat diakses oleh setiap key.
 
 Push GitHub memerlukan login akun Darlayx1 atau koneksi GitHub yang terautentikasi. Browser dan Git Credential Manager belum memiliki autentikasi tersebut.
 
@@ -44,4 +46,4 @@ Ulangi pemeriksaan HTTP kapan saja dengan:
 node tests/http-smoke.mjs https://transly-studio.adikagung32.chatgpt.site
 ```
 
-Masukkan key aktif melalui Pengaturan AI untuk menguji generate, submit, dan evaluasi nyata. Jangan mengklaim Definition of Done penuh sebelum langkah AI dan push GitHub berhasil.
+Key pengguna dimasukkan lewat Pengaturan AI di browser production dan tidak disimpan di repository atau variabel environment bersama. Generate, submit, dan evaluasi nyata telah berhasil. Jangan mengklaim Definition of Done penuh sebelum push GitHub berhasil.
