@@ -8,6 +8,7 @@ import { Review } from '@/components/transly/review';
 import { api, ErrorBanner, Processing, Modal } from '@/components/transly/ui';
 import { challengeSchema, configSchema, defaultConfig, evaluationSchema, sessionSchema, type PracticeConfig, type PracticeSession } from '@/lib/transly/schema';
 import { sampleAnswer, sampleChallenge, sampleConfig, sampleEvaluation } from '@/lib/transly/sample';
+import type { RoutingInfo } from '@/lib/transly/vault-types';
 
 type View = 'setup' | 'practice' | 'review';
 type Confirmation = 'replace' | 'sample-replace' | 'submit';
@@ -22,6 +23,7 @@ export default function Home() {
   const [busy, setBusy] = useState<'generate' | 'evaluate' | null>(null);
   const [status, setStatus] = useState<KeyStatus>({ generator: false, evaluator: false, custom: false, server: false });
   const [error, setError] = useState('');
+  const [routingMessage, setRoutingMessage] = useState('');
   const [storageFailed, setStorageFailed] = useState(false);
   const [confirm, setConfirm] = useState<Confirmation | null>(null);
   const [ready, setReady] = useState(false);
@@ -47,6 +49,7 @@ export default function Home() {
     const route = () => {
       const s = current.current ?? saved;
       const h = window.location.hash;
+      if (h === '#settings') setSettings(true);
       setView(h === '#review' && s?.result ? 'review' : h === '#practice' && s && !s.result ? 'practice' : 'setup');
     };
     route();
@@ -96,9 +99,11 @@ export default function Home() {
   }
   async function generate() {
     if (locked.current) return;
-    locked.current = true; setConfirm(null); setError(''); setBusy('generate'); lastAction.current = 'generate';
+    locked.current = true; setConfirm(null); setError(''); setRoutingMessage(''); setBusy('generate'); lastAction.current = 'generate';
     try {
-      const challenge = challengeSchema.parse(await api('/api/generate', config));
+      const data = await api<{ routing?: RoutingInfo }>('/api/generate', config);
+      const challenge = challengeSchema.parse(data);
+      if (data.routing?.fallback) setRoutingMessage(`Latihan berhasil setelah ${data.routing.attempts.length} percobaan. Menggunakan ${data.routing.attempts.at(-1)?.keyName}.`);
       const now = Date.now();
       setSession({ config: { ...config }, challenge, answer: '', deadline: now + config.duration * 60000, startedAt: now });
       navigate('practice');
@@ -121,9 +126,11 @@ export default function Home() {
       navigate('review');
       return;
     }
-    locked.current = true; setBusy('evaluate'); lastAction.current = 'evaluate';
+    locked.current = true; setRoutingMessage(''); setBusy('evaluate'); lastAction.current = 'evaluate';
     try {
-      const result = evaluationSchema.parse(await api('/api/evaluate', { config: session.config, sourceText: session.challenge.sourceText, userTranslation: session.answer }));
+      const data = await api<{ routing?: RoutingInfo }>('/api/evaluate', { config: session.config, sourceText: session.challenge.sourceText, userTranslation: session.answer });
+      const result = evaluationSchema.parse(data);
+      if (data.routing?.fallback) setRoutingMessage(`Evaluasi berhasil setelah ${data.routing.attempts.length} percobaan. Menggunakan ${data.routing.attempts.at(-1)?.keyName}.`);
       setSession({ ...session, result });
       navigate('review');
     } catch (e) { setError((e as Error).message); }
@@ -135,6 +142,7 @@ export default function Home() {
   return <div className="app-shell">
     <header className="site-header"><div className="header-inner"><button className="brand" onClick={() => { if (!busy) navigate('setup'); }} aria-label="Transly, beranda"><span className="brand-mark"><Languages size={23}/></span>transly<span className="brand-dot">.</span></button><nav aria-label="Navigasi utama"><button className={view === 'setup' ? 'active' : ''} onClick={() => { if (!busy) navigate('setup'); }}>Latihan</button>{session && <button className={view !== 'setup' ? 'active' : ''} onClick={() => { if (!busy) resume(); }}>{session.result ? 'Evaluasi' : 'Sesi aktif'}</button>}</nav><button className="settings-button" aria-label="Pengaturan AI" onClick={() => setSettings(true)} disabled={Boolean(busy)}><SlidersHorizontal size={18}/><span>Pengaturan AI</span></button></div></header>
     {error && <div className="global-error"><ErrorBanner message={error} onDismiss={() => setError('')}/><div className="error-actions"><button className="text-button" onClick={() => setSettings(true)}>Pengaturan AI</button>{lastAction.current && <button className="text-button" disabled={Boolean(busy)} onClick={() => lastAction.current === 'generate' ? void generate() : void evaluate()}>Coba lagi</button>}</div></div>}
+    {routingMessage && <div className="routing-notice" role="status"><ShieldCheck size={17}/><span>{routingMessage}</span><button className="text-button" onClick={() => setRoutingMessage('')}>Tutup</button></div>}
     {!ready ? <div className="initial-load" role="status">Menyiapkan ruang latihan…</div> : busy ? <Processing evaluation={busy === 'evaluate'}/> : view === 'practice' && session ? <Practice session={session} onAnswer={answer => setSession({ ...session, answer })} onSubmit={submit} onSampleAnswer={() => setSession({ ...session, answer: sampleAnswer })} onSettings={() => setSettings(true)} storageFailed={storageFailed}/> : view === 'review' && session?.result ? <Review session={session} onNew={() => navigate('setup')}/> : <Setup config={config} onConfig={changeConfig} onStart={start} onSample={startSample} onSettings={() => setSettings(true)} status={status} session={session} onResume={resume}/>}
     <footer className="site-footer"><span><Languages size={15}/>transly</span><span>Belajar memahami. Berlatih menerjemahkan.</span><span><ShieldCheck size={14}/>Key terenkripsi</span></footer>
     <Settings open={settings} onClose={() => setSettings(false)} config={view === 'practice' && session ? { ...config, evaluator: session.config.evaluator } : config} onConfig={changeConfig} status={status} onStatus={setStatus}/>

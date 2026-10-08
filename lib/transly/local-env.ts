@@ -1,2 +1,3 @@
 // Vite aliases cloudflare:workers here during the portable Node preview only.
-export const env = process.env;
+import { localDatabase } from './local-db';
+export const env = { ...process.env, DB: localDatabase() };

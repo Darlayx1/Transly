@@ -9,24 +9,36 @@ export const pagesOrigin = 'https://darlayx1.github.io';
 export const isPagesRequest = (request: Request) => request.headers.get('origin') === pagesOrigin;
 const runtime = env as unknown as { SESSION_SECRET?: string; GEMINI_API_KEY?: string };
 export class AppError extends Error {
-  constructor(public code: string, message: string, public status = 400) { super(message); }
+  constructor(public code: string, message: string, public status = 400, public retryAfterMs = 0) { super(message); }
 }
 export function json(data: unknown, status = 200, headers: Record<string, string> = {}) {
   return Response.json(data, { status, headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', ...headers } });
 }
 export function errorResponse(error: unknown) {
-  if (error instanceof AppError) return json({ error: { code: error.code, message: error.message } }, error.status);
+  if (error instanceof AppError) return json({ error: { code: error.code, message: error.message, retryAfterMs: error.retryAfterMs } }, error.status, error.retryAfterMs ? { 'Retry-After': String(Math.ceil(error.retryAfterMs / 1000)) } : {});
   if (error instanceof z.ZodError) return json({ error: { code: 'INVALID_INPUT', message: 'Data belum lengkap atau tidak valid. Periksa konfigurasi dan coba lagi.' } }, 400);
   return json({ error: { code: 'SERVER_ERROR', message: 'Server sedang mengalami kendala. Jawaban tetap tersimpan. Silakan coba lagi.' } }, 500);
 }
-export async function readBody(request: Request) {
+export async function readBody(request: Request, maxSize = 60000) {
   const origin = request.headers.get('origin');
   if (origin && origin !== new URL(request.url).origin && !isPagesRequest(request)) throw new AppError('FORBIDDEN', 'Permintaan tidak diizinkan.', 403);
   if (request.headers.get('sec-fetch-site') === 'cross-site' && !isPagesRequest(request)) throw new AppError('FORBIDDEN', 'Permintaan tidak diizinkan.', 403);
   if (!request.headers.get('content-type')?.includes('application/json')) throw new AppError('INVALID_INPUT', 'Format permintaan tidak valid.', 415);
-  if (Number(request.headers.get('content-length')) > 60000) throw new AppError('TOO_LARGE', 'Teks terlalu panjang.', 413);
-  const text = await request.text();
-  if (text.length > 60000) throw new AppError('TOO_LARGE', 'Teks terlalu panjang.', 413);
+  if (Number(request.headers.get('content-length')) > maxSize) throw new AppError('TOO_LARGE', 'Data permintaan terlalu besar.', 413);
+  const reader = request.body?.getReader();
+  if (!reader) throw new AppError('INVALID_INPUT', 'Data permintaan tidak valid.');
+  let size = 0, text = '';
+  const bodyDecoder = new TextDecoder();
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > maxSize) { await reader.cancel(); throw new AppError('TOO_LARGE', 'Data permintaan terlalu besar.', 413); }
+      text += bodyDecoder.decode(value, { stream: true });
+    }
+    text += bodyDecoder.decode();
+  } finally { reader.releaseLock(); }
   try { return JSON.parse(text); } catch { throw new AppError('INVALID_INPUT', 'Data permintaan tidak valid.'); }
 }
 async function encryptionKey() {
@@ -118,7 +130,7 @@ export function parseJsonResponse(rawText: string): unknown {
   throw new AppError('INVALID_RESPONSE', 'Format jawaban AI tidak dapat dibaca. Silakan coba lagi atau pilih model lain.', 502);
 }
 
-export async function generateJson(key: string, modelId: string, prompt: string, schema: unknown): Promise<unknown> {
+export async function generateJson(key: string, modelId: string, prompt: string, schema: unknown, options: { maxAttempts?: number; timeoutMs?: number; signal?: AbortSignal } = {}): Promise<unknown> {
   const model = models.find(m => m.id === modelId);
   if (!model) throw new AppError('MODEL_UNAVAILABLE', 'Pilih model yang tersedia.');
 
@@ -137,7 +149,7 @@ export async function generateJson(key: string, modelId: string, prompt: string,
     generationConfig: config,
   });
 
-  const maxAttempts = 2;
+  const maxAttempts = options.maxAttempts ?? 2;
   let lastError: unknown;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -147,7 +159,7 @@ export async function generateJson(key: string, modelId: string, prompt: string,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
         body: bodyPayload,
-        signal: AbortSignal.timeout(90000),
+        signal: options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(options.timeoutMs ?? 90000)]) : AbortSignal.timeout(options.timeoutMs ?? 90000),
       });
     } catch (e) {
       const isTimeout = e instanceof Error && /timeout|abort/i.test(e.name);
@@ -168,8 +180,15 @@ export async function generateJson(key: string, modelId: string, prompt: string,
 
     if (!response.ok) {
       let message = '';
+      let retryAfterMs = 0;
+      const retryHeader = response.headers.get('retry-after');
+      if (retryHeader) retryAfterMs = /^\d+(\.\d+)?$/.test(retryHeader) ? Number(retryHeader) * 1000 : Math.max(0, Date.parse(retryHeader) - Date.now());
       try {
-        message = String((await response.json() as { error?: { message?: string } }).error?.message ?? '');
+        const error = (await response.json() as { error?: { message?: string; details?: { retryDelay?: string }[] } }).error;
+        message = String(error?.message ?? '');
+        const delay = error?.details?.find(d => typeof d.retryDelay === 'string')?.retryDelay?.match(/^([\d.]+)s$/);
+        if (delay) retryAfterMs = Math.max(retryAfterMs, Number(delay[1]) * 1000);
+        retryAfterMs = Number.isFinite(retryAfterMs) ? Math.min(86400000, Math.max(0, retryAfterMs)) : 0;
       } catch { /* ignore */ }
 
       console.warn(`[transly:${model.id}] attempt ${attempt} upstream status: ${response.status}`);
@@ -197,9 +216,9 @@ export async function generateJson(key: string, modelId: string, prompt: string,
       }
       if (response.status === 429) {
         if (/rate.?limit|requests.?per/i.test(message)) {
-          throw new AppError('RATE_LIMIT', 'Batas frekuensi permintaan tercapai. Tunggu satu menit sebelum mencoba lagi.', 429);
+          throw new AppError('RATE_LIMIT', 'Batas frekuensi permintaan tercapai. Tunggu sebentar sebelum mencoba lagi.', 429, retryAfterMs || 60000);
         }
-        throw new AppError('QUOTA_EXCEEDED', 'Kuota AI habis atau batas permintaan tercapai. Tunggu sebentar, periksa kuota Google AI, atau gunakan key lain.', 429);
+        throw new AppError('QUOTA_EXCEEDED', 'Kuota AI habis atau batas permintaan tercapai. Periksa kuota Google AI atau gunakan cadangan dari proyek lain.', 429, retryAfterMs || (/per.?day|daily/i.test(message) ? 3600000 : 60000));
       }
       if (response.status >= 500) {
         if (attempt < maxAttempts) {
@@ -207,7 +226,7 @@ export async function generateJson(key: string, modelId: string, prompt: string,
           await new Promise(r => setTimeout(r, 1000));
           continue;
         }
-        throw new AppError('PROVIDER_ERROR', 'Layanan AI sedang bermasalah. Jawaban tetap tersimpan; coba kembali nanti.', 502);
+        throw new AppError('PROVIDER_ERROR', 'Layanan AI sedang bermasalah. Jawaban tetap tersimpan; coba kembali nanti.', 502, retryAfterMs);
       }
       throw new AppError('PROVIDER_ERROR', 'Layanan AI sedang bermasalah. Jawaban tetap tersimpan; coba kembali nanti.', 502);
     }

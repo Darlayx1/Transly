@@ -64,19 +64,31 @@ Buka `http://127.0.0.1:5173`. Preview portable memakai Node dan alias env lokal;
 | Variabel | Kebutuhan | Fungsi |
 | --- | --- | --- |
 | SESSION_SECRET | Wajib, minimal 32 karakter acak | AES-GCM credential cookie; gunakan secret yang berbeda per lingkungan |
+| VAULT_ENCRYPTION_KEYS | Wajib untuk brankas | JSON versi secret acak, contoh bentuk `{"v1":"<secret acak minimal 32 karakter>"}`; simpan sebagai runtime secret |
+| VAULT_ACTIVE_VERSION | Wajib untuk brankas | Versi aktif dalam VAULT_ENCRYPTION_KEYS, awalnya `v1` |
 | GEMINI_API_KEY | Opsional | Shared server key; untuk deployment publik, BYOK direkomendasikan |
 
 Jangan beri prefix `NEXT_PUBLIC_` pada credential. `.env*`, `.dev.vars*`, dependencies, build, dan runtime diabaikan Git; `.env.example` adalah contoh tanpa nilai asli.
 
 ## Custom API key dan keamanan
 
-Buka **Pengaturan AI** dan masukkan key Google AI Studio. Dua key berbeda dapat digunakan. Key tidak dikembalikan oleh endpoint status, tidak masuk ke localStorage, URL, log aplikasi, atau JavaScript bundle. Input dibersihkan setelah tersimpan/ditutup. Cookie berisi ciphertext AES-GCM dengan IV acak, `HttpOnly`, `SameSite=Strict`, masa berlaku 24 jam, dan `Secure` pada HTTPS; cookie hanya dikirim ke `/api`. Key didekripsi hanya di server lalu dikirim ke Google dalam header `x-goog-api-key`.
+Buka **Pengaturan AI** pada situs utama dan masuk dengan ChatGPT. Brankas menyimpan hingga 50 API key secara permanen dalam D1, terpisah per akun. Tambah nama, Project ID Google Cloud, peran (generator/evaluator/keduanya), prioritas, dan status aktif. Key tersimpan AES-GCM dengan IV acak dan authenticated context yang mengikatnya pada akun serta record. Secret enkripsi brankas terpisah dari SESSION_SECRET. Status hanya mengembalikan metadata dan empat karakter terakhir; nilai key tidak dikembalikan ke browser, localStorage, URL, log aplikasi, atau bundle. Input dibersihkan setelah tersimpan/ditutup. Key didekripsi hanya di server dan dikirim ke endpoint Google yang tetap melalui header `x-goog-api-key`.
 
-Teks sumber dan jawaban dikirim ke Google untuk proses AI. Draft dan evaluasi tetap disimpan lokal pada perangkat. Enkripsi cookie melindungi key dari pembacaan JavaScript, tetapi bukan dari kompromi perangkat/browser/server. Rotasi SESSION_SECRET membatalkan cookie lama. Gunakan tombol **Hapus key** untuk menghapus credential pada perangkat bersama.
+Mode awal **Prioritas & cadangan** memilih key utama lalu cadangan yang sesuai. **Pembagian beban** memilih key yang paling lama tidak digunakan. Model tidak diganti otomatis. Key invalid dikarantina, kegagalan izin berlaku pada pasangan key/model, sedangkan 429 menghentikan sementara kelompok proyek/model mengikuti Retry-After atau RetryInfo provider. Dua gangguan provider berurutan membuka circuit breaker 30 detik. Safety block dan parameter salah tidak memicu pergantian key. Satu permintaan memiliki maksimal 1–3 percobaan total dan deadline 85 detik; setiap panggilan provider maksimal 30 detik. Timeout tidak menjamin provider membatalkan pekerjaan atau tagihan.
 
-Pada GitHub Pages, cookie lintas situs tidak digunakan. Server mengembalikan token sesi AES-GCM yang hanya disimpan dalam memori tab dan dikirim melalui header Authorization. Key asli tidak dikembalikan. Refresh menghapus sesi AI sehingga key perlu dimasukkan kembali; draft tetap tersimpan. Backend mengizinkan CORS hanya untuk origin `https://darlayx1.github.io`.
+Kelompok proyek diisi pengguna dan tidak diverifikasi otomatis. Gunakan Project ID yang sama persis untuk key dari proyek yang sama; key tanpa Project ID masuk kelompok konservatif `unknown`. Gemini membatasi kuota per proyek, bukan per API key. Pembatasan D1 berlaku bersama lintas Worker: 30 pekerjaan per akun/menit, 12 panggilan per kelompok proyek/model/menit, maksimal 3 pekerjaan bersamaan per akun, 2 panggilan per proyek/model dan 1 per key. Antrean menunggu maksimal 5 detik. Idempotency-Key terikat akun dan hash input; hasil tervalidasi disimpan terenkripsi selama 10 menit agar retry setelah koneksi terputus dapat mengambil hasil yang sama.
 
-Endpoint membatasi ukuran request, memvalidasi input, menolak cross-origin, membatasi tujuan provider, dan menyembunyikan error internal. Throttling 12 permintaan per key/menit bersifat best-effort per isolate; untuk penggunaan skala besar, tambahkan rate limiting terdistribusi pada gateway. Hindari shared server key pada situs publik tanpa pengendalian kuota tambahan. Tidak ada credential produksi bawaan: user harus memasukkan key aktif. Kuota/billing mengikuti akun Google milik user.
+**Uji akses** memakai metadata model tanpa membuat konten dan bukan jaminan tersedianya kuota inferensi. Riwayat menyimpan maksimal 100 percobaan per akun (30 ditampilkan), berisi nama key/model, status, durasi, dan nomor percobaan. Isi latihan dan jawaban tidak dicatat dalam riwayat. Penghapusan key menghapus record dan riwayat terkait; pencabutan key provider harus dilakukan di Google AI Studio. Permintaan yang sudah dikirim ke Google tidak dapat ditarik kembali.
+
+Bagian **Fallback → Cadangan & pemulihan key** menyediakan ekspor/impor AES-GCM. Kata sandi minimal 12 karakter diproses di browser menggunakan PBKDF2-SHA256 (600.000 iterasi, salt acak); kata sandi tidak dikirim ke server. Derived wrapping key hanya dikirim melalui sesi HTTPS untuk operasi tersebut. File berisi ciphertext, IV, salt dan versi format, tanpa plaintext credential. Pemulihan menambah key tanpa menimpa yang ada dan aman diulang. Simpan kata sandi terpisah; tidak ada mekanisme untuk memulihkan kata sandi cadangan yang hilang.
+
+Rotasi secret brankas: tambahkan versi baru ke VAULT_ENCRYPTION_KEYS sambil mempertahankan versi lama, set VAULT_ACTIVE_VERSION, lalu deploy. Record otomatis dienkripsi ulang saat digunakan; operasi `{ "action": "rotate" }` pada `/api/credentials` mengenkripsi ulang seluruh key akun yang sedang masuk. Hapus versi lama hanya setelah seluruh akun, hasil cache yang belum kedaluwarsa, serta cadangan operasional diverifikasi. Jangan mengganti nilai suatu versi yang sudah dipakai.
+
+Teks sumber dan jawaban dikirim ke Google untuk proses AI. Draft dan evaluasi tetap disimpan lokal pada perangkat. Autentikasi ditangani dispatcher Sites melalui SIWC; API memeriksa identitas terverifikasi serta kepemilikan di setiap operasi. Keluar dari akun tidak menghapus brankas. Enkripsi tidak melindungi dari kompromi server yang memegang secret. Development portable menggunakan SQLite persisten di `.sites-runtime/vault.sqlite` dan simulasi login lokal; production menggunakan D1 dan tidak menyertakan simulasi login.
+
+Pada GitHub Pages, Pengaturan AI mengarahkan ke situs utama untuk sesi akun dan brankas pada origin yang sama. Draft perangkat tidak dipindahkan lintas origin. Endpoint cookie/key lama dipertahankan untuk kompatibilitas sesi 24 jam; bearer Pages tetap hanya berada di memori tab. Setelah masuk pada situs utama, **Pindahkan key sesi** memigrasikan credential cookie yang masih tersedia ke brankas dan menghapus cookie lama. Backend mengizinkan CORS hanya untuk origin `https://darlayx1.github.io`; permintaan Pages tidak mendapatkan identitas atau akses brankas.
+
+Endpoint membatasi ukuran request aktual termasuk chunked body, memvalidasi input, menolak cross-origin, membatasi tujuan provider, dan menyembunyikan error internal. Throttling sesi legacy tetap best-effort per isolate; brankas memakai reservasi atomik D1. Tidak ada shared provider key produksi bawaan. Kuota dan billing mengikuti akun Google pengguna; statistik aplikasi adalah jumlah percobaan, bukan laporan tagihan resmi.
 
 ## Menjalankan pemeriksaan dan build
 
@@ -97,6 +109,8 @@ Site ini menggunakan Sites. `.openai/hosting.json` menyimpan identitas Site, buk
 Deployment aktif: [transly-studio.adikagung32.chatgpt.site](https://transly-studio.adikagung32.chatgpt.site/). Aset, route aplikasi, penyimpanan key, dan penanganan key invalid telah diperiksa di production. Generate dan evaluasi sukses telah diuji dengan key pengguna pada Gemini 3.5 Flash. Model lain tetap bergantung pada akses dan ketersediaan provider.
 
 Untuk Cloudflare Workers langsung, build dan deploy konfigurasi `dist/server/wrangler.json` memakai akun Cloudflare Anda, lalu konfigurasi runtime secret:
+
+Brankas akun bergantung pada identitas terverifikasi dari dispatcher Sites. Deployment Worker langsung wajib menyediakan gateway autentikasi tepercaya yang menghapus header identitas kiriman klien dan memverifikasi sesi sebelum meneruskan identitas; jangan mengekspos backend brankas langsung dengan mempercayai header publik. Alur SIWC bawaan dan provisioning D1 dikelola Sites.
 
 ```sh
 npx wrangler secret put SESSION_SECRET --config dist/server/wrangler.json

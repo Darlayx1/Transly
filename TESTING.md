@@ -6,7 +6,7 @@ Tanggal: 8 Oktober 2026 (Asia/Makassar).
 
 - TypeScript strict (`tsc --noEmit`).
 - Build production Cloudflare Worker dan aset client.
-- 18 tes validasi/provider/security, model awal, span sampel, serta sesi bearer Pages yang hanya dapat digunakan dari origin yang diizinkan (`npm test`).
+- 30 tes validasi/provider/security lama dan 17 tes integrasi brankas berbasis SQLite nyata (`npm test`); respons provider disimulasikan.
 - HTTP smoke: status credential, cookie AES-GCM HttpOnly, status tanpa plaintext key, penolakan key invalid oleh Google sungguhan, penghapusan cookie, dan penolakan cross-origin (`node tests/http-smoke.mjs`).
 - UI konfigurasi: level B2, custom topic, generator Gemini 3.7 dan evaluator Gemma 4 31B dipilih independen.
 - UI editor: mengetik, navigasi beranda/sesi, refresh, pemulihan draft, serta tab baca/tulis mobile.
@@ -22,6 +22,10 @@ Tanggal: 8 Oktober 2026 (Asia/Makassar).
 - Panggilan AI production dengan key pengguna: Gemini 3.5 Flash membuat teks B1 79 kata dan mengevaluasi terjemahan lengkap menjadi skor 98/100, feedback, tiga penanda Suggestion, popover, dan versi ideal.
 
 ## Batas verifikasi
+
+Pembaruan brankas pada 8 Oktober 2026: 17 tes integrasi memeriksa isolasi akun, masking, duplikasi, AES-GCM/AAD, tampering, respons besar, rotasi versi, fallback key invalid, cooldown proyek dengan Retry-After/RetryInfo, izin per model, penghentian pada safety/parameter, circuit breaker, batas percobaan, mode pembagian beban, concurrency, antrean yang memeriksa ulang key sibuk, replay idempoten, reservasi limit atomik, uji metadata, penghapusan, serta cadangan berpassword. Preview HTTP menguji login lokal, penolakan identitas palsu, penyimpanan/pembacaan, duplikasi, penolakan cross-origin/anonim, perubahan metadata, dan ekspor/impor cadangan. Data uji hanya menggunakan key palsu.
+
+UI brankas diverifikasi pada desktop dan lebar 375 piksel: login lokal, tambah key, refresh mempertahankan key, tab fallback, dan tidak ada overflow horizontal pada halaman/dialog. Secret master production dikonfigurasi terpisah dari SESSION_SECRET; tidak ada key provider pengguna baru yang digunakan untuk pengujian ini. Keberhasilan AI dengan brankas memakai fixture provider dan tidak membuktikan akses/kuota key pengguna di Google.
 
 Tes provider otomatis memakai respons simulasi. HTTP smoke melakukan permintaan Google nyata dengan key palsu khusus pengujian untuk menguji kegagalan. Alur sampel yang dipublikasikan adalah demonstrasi eksplisit, bukan penilaian AI untuk tulisan bebas.
 
