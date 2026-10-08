@@ -11,7 +11,7 @@ for (const name of ['config', 'schema', 'server', 'sample']) {
   const source = (await readFile(`lib/transly/${name}.ts`, 'utf8')).replace("from './config'", "from './config.js'").replace("from './schema'", "from './schema.js'").replace("import { env } from 'cloudflare:workers';", 'const env = {};');
   await writeFile(path.join(dir, `${name}.js`), ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText);
 }
-const { normalizeEvaluation } = await import(pathToFileURL(path.join(dir, 'schema.js')));
+const { normalizeEvaluation, defaultConfig } = await import(pathToFileURL(path.join(dir, 'schema.js')));
 const server = await import(pathToFileURL(path.join(dir, 'server.js')));
 const sample = await import(pathToFileURL(path.join(dir, 'sample.js')));
 const raw = { overallScore: 80, summaryFeedback: 'Pertahankan makna sumber.', strengths: ['Konteks jelas.'], weaknesses: ['Periksa negasi.'], sourceText: 'ignored', userTranslation: 'ignored', idealTranslation: 'Saya tidak pergi.', categoryScores: { accuracy: 80, grammar: 80, wordChoice: 80, naturalness: 80, completeness: 80, style: 80 }, annotations: [] };
@@ -23,6 +23,7 @@ await test('discard ambiguous quotes, invalid severity and overlaps', () => { co
 await test('all four severities retain exact boundaries', () => { const text = 'saran kecil besar kritis'; const r = normalizeEvaluation({ ...raw, annotations: ['suggestion','minor','major','fatal'].map((s,i)=>ann(text.split(' ')[i],99,s)) }, 'source', text); assert.equal(r.annotations.length,4); for(const a of r.annotations) assert.equal(text.slice(a.start,a.end),a.originalText); });
 await test('reject incomplete evaluations and scores outside range', () => { assert.throws(() => normalizeEvaluation({ ...raw, overallScore: 101 }, 'source', 'answer')); assert.throws(() => normalizeEvaluation({ annotations: [] }, 'source', 'answer')); });
 await test('empty answer has no fabricated spans', () => { assert.equal(normalizeEvaluation({ ...raw, annotations: [ann('missing')] }, 'source', '').annotations.length, 0); });
+await test('default generator and evaluator use a verified available model', () => { assert.equal(defaultConfig.generator, 'gemini-3.5-flash'); assert.equal(defaultConfig.evaluator, 'gemini-3.5-flash'); });
 await test('sample annotations cover exact non-overlapping spans in all four severities', () => {
   assert.equal(sample.sampleEvaluation.userTranslation, sample.sampleAnswer);
   assert.equal(sample.sampleEvaluation.sourceText, sample.sampleChallenge.sourceText);

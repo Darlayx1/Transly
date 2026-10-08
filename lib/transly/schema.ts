@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { levels, models } from './config';
+import { levels, models, defaultModelId } from './config';
 
 export const modelSchema = z.string().refine(v => models.some(m => m.id === v), 'Model tidak tersedia.');
 export const configSchema = z.object({
@@ -7,7 +7,7 @@ export const configSchema = z.object({
   topic: z.string().max(120), style: z.string().max(60), generator: modelSchema, evaluator: modelSchema,
 });
 export type PracticeConfig = z.infer<typeof configSchema>;
-export const defaultConfig: PracticeConfig = { level: 'B1', length: 'medium', duration: 15, topic: '', style: '', generator: models[0].id, evaluator: models[0].id };
+export const defaultConfig: PracticeConfig = { level: 'B1', length: 'medium', duration: 15, topic: '', style: '', generator: defaultModelId, evaluator: defaultModelId };
 export const challengeSchema = z.object({ title: z.string().min(1).max(200), sourceText: z.string().min(30).max(12000), topic: z.string().min(1).max(120), style: z.string().min(1).max(60) });
 export type Challenge = z.infer<typeof challengeSchema>;
 export const annotationSchema = z.object({

@@ -7,6 +7,7 @@ Aplikasi latihan menerjemahkan bahasa Inggris ke bahasa Indonesia. AI menyusun s
 - Level A1–C2 dan Native; panjang pendek/sedang/panjang; durasi 5–60 menit.
 - Topik otomatis, pilihan topik, topik custom, dan sembilan gaya bahasa.
 - Model generator dan evaluator dipilih secara independen.
+- Gemini 3.5 Flash menjadi pilihan awal karena telah lulus uji generate dan evaluasi production.
 - Gemini 3.8, 3.7, 3.6, 3.5 Flash, 3.5 Flash Lite, dan Gemma 4 31B.
 - Desktop: sumber dan editor berdampingan. Mobile: tab baca/tulis dan bottom sheet feedback.
 - Timer memakai deadline absolut sehingga refresh tidak mengulang waktu. Waktu habis mengunci editor; user mengirim evaluasi secara manual. Jawaban kosong dapat dinilai dengan skor 0.

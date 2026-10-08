@@ -17,6 +17,7 @@ export const models = [
   { id: 'gemini-3.5-flash-lite', name: 'Gemini 3.5 Flash Lite', structured: true },
   { id: 'gemma-4-31b-it', name: 'Gemma 31B', structured: false },
 ] as const;
+export const defaultModelId = models.find(model => model.id === 'gemini-3.5-flash')?.id ?? models[0].id;
 export const topics = ['General', 'Technology', 'Science', 'Health', 'Education', 'Business', 'Culture', 'Environment', 'Daily Life', 'History', 'Entertainment'];
 export const styles = ['Casual', 'Neutral', 'Formal', 'Academic', 'Professional', 'Conversational', 'Narrative', 'News Style', 'Descriptive'];
 export const lengths = { short: { label: 'Pendek', range: '60–100', min: 60, max: 100 }, medium: { label: 'Sedang', range: '150–220', min: 150, max: 220 }, long: { label: 'Panjang', range: '300–450', min: 300, max: 450 } };

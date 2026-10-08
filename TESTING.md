@@ -6,7 +6,7 @@ Tanggal: 8 Oktober 2026 (Asia/Makassar).
 
 - TypeScript strict (`tsc --noEmit`).
 - Build production Cloudflare Worker dan aset client.
-- 16 tes validasi/provider/security dan ketepatan span sampel (`npm test`).
+- 17 tes validasi/provider/security, model awal, dan ketepatan span sampel (`npm test`).
 - HTTP smoke: status credential, cookie AES-GCM HttpOnly, status tanpa plaintext key, penolakan key invalid oleh Google sungguhan, penghapusan cookie, dan penolakan cross-origin (`node tests/http-smoke.mjs`).
 - UI konfigurasi: level B2, custom topic, generator Gemini 3.7 dan evaluator Gemma 31B dipilih independen.
 - UI editor: mengetik, navigasi beranda/sesi, refresh, pemulihan draft, serta tab baca/tulis mobile.
