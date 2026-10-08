@@ -49,10 +49,27 @@ async function encryptionKey() {
 }
 const b64 = (v: Uint8Array) => btoa(String.fromCharCode(...v)).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
 const unb64 = (v: string) => Uint8Array.from(atob(v.replaceAll('-', '+').replaceAll('_', '/')), c => c.charCodeAt(0));
-const credentialSchema = z.object({ generator: z.string().max(256), evaluator: z.string().max(256), expires: z.number() });
+const credentialSchema = z.object({
+  generator: z.string().max(256).optional(),
+  evaluator: z.string().max(256).optional(),
+  gemini: z.string().max(256).optional(),
+  groq: z.string().max(256).optional(),
+  expires: z.number(),
+});
 type Credentials = z.infer<typeof credentialSchema>;
+export type DeviceCredentialInput = {
+  generator?: string;
+  evaluator?: string;
+  gemini?: string;
+  groq?: string;
+};
 export async function readCredentials(request: Request): Promise<Credentials | null> {
-  const value = isPagesRequest(request) ? request.headers.get('authorization')?.match(/^Bearer ([A-Za-z0-9_.-]+)$/)?.[1] : request.headers.get('cookie')?.split(';').map(v => v.trim()).find(v => v.startsWith(cookieName + '='))?.slice(cookieName.length + 1);
+  const origin = request.headers.get('origin');
+  if (origin && origin !== new URL(request.url).origin && !isPagesRequest(request)) return null;
+  const authHeader = request.headers.get('authorization');
+  const bearerToken = authHeader?.match(/^Bearer ([A-Za-z0-9_.-]+)$/)?.[1];
+  const cookieToken = request.headers.get('cookie')?.split(';').map(v => v.trim()).find(v => v.startsWith(cookieName + '='))?.slice(cookieName.length + 1);
+  const value = bearerToken || cookieToken;
   if (!value || value.length > 3000) return null;
   try {
     const [iv, encrypted] = value.split('.');
@@ -61,16 +78,29 @@ export async function readCredentials(request: Request): Promise<Credentials | n
     return c.expires > Date.now() ? c : null;
   } catch { return null; }
 }
-export async function credentialCookie(request: Request, generator: string, evaluator: string) {
+export async function credentialCookie(request: Request, generatorOrInput: string | DeviceCredentialInput, evaluator?: string) {
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const data = encoder.encode(JSON.stringify({ generator, evaluator, expires: Date.now() + 86400000 }));
+  const payload = typeof generatorOrInput === 'string'
+    ? { generator: generatorOrInput, evaluator: evaluator || generatorOrInput, expires: Date.now() + 86400000 }
+    : {
+        ...generatorOrInput,
+        generator: generatorOrInput.generator || generatorOrInput.gemini,
+        evaluator: generatorOrInput.evaluator || generatorOrInput.gemini,
+        expires: Date.now() + 86400000,
+      };
+  const data = encoder.encode(JSON.stringify(payload));
   const encrypted = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: encoder.encode(cookieName) }, await encryptionKey(), data));
   return `${cookieName}=${b64(iv)}.${b64(encrypted)}; Path=/api; HttpOnly; SameSite=Strict; Max-Age=86400${new URL(request.url).protocol === 'https:' ? '; Secure' : ''}`;
 }
 export const clearCookie = (request: Request) => `${cookieName}=; Path=/api; HttpOnly; SameSite=Strict; Max-Age=0${new URL(request.url).protocol === 'https:' ? '; Secure' : ''}`;
 export async function resolveKey(request: Request, role: 'generator' | 'evaluator', provider: Provider = 'gemini') {
   const keys = await readCredentials(request);
-  const key = provider === 'gemini' ? keys?.[role] || runtime.GEMINI_API_KEY || process.env.GEMINI_API_KEY : runtime.GROQ_API_KEY || process.env.GROQ_API_KEY;
+  let key: string | undefined;
+  if (provider === 'gemini') {
+    key = (keys?.[role] && !keys[role]?.startsWith('gsk_') ? keys[role] : undefined) || keys?.gemini || runtime.GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+  } else if (provider === 'groq') {
+    key = (keys?.[role] && !keys[role]?.startsWith('AIza') && !keys[role]?.startsWith('gemini') ? keys[role] : undefined) || keys?.groq || runtime.GROQ_API_KEY || process.env.GROQ_API_KEY;
+  }
   if (!key) throw new AppError('KEY_REQUIRED', `Tambahkan API key ${providers[provider].name} di Pengaturan AI untuk ${role === 'generator' ? 'pembuat soal' : 'penilai terjemahan'}.`);
   return key;
 }

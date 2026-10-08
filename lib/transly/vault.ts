@@ -42,7 +42,13 @@ export async function vaultStatus(request: Request) {
   const user = account(request);
   if (!user) {
     const legacy = await readCredentials(request);
-    return { generator: Boolean(legacy?.generator) || hasServerKey(), evaluator: Boolean(legacy?.evaluator) || hasServerKey(), custom: Boolean(legacy), server: hasServerKey() || hasServerKey('groq'), serverProviders: (['gemini', 'groq'] as const).filter(hasServerKey), legacyProviders: legacy ? ['gemini'] : [], account: null, keys: [], health: [], events: [], settings: { mode: 'priority', maxAttempts: 3 } };
+    const legacyProviders: Provider[] = [];
+    if (legacy) {
+      if (legacy.gemini || (legacy.generator && !legacy.generator.startsWith('gsk_')) || (legacy.evaluator && !legacy.evaluator.startsWith('gsk_'))) legacyProviders.push('gemini');
+      if (legacy.groq || (legacy.generator && (legacy.generator.startsWith('gsk_') || legacy.generator.includes('groq'))) || (legacy.evaluator && (legacy.evaluator.startsWith('gsk_') || legacy.evaluator.includes('groq')))) legacyProviders.push('groq');
+      if (legacyProviders.length === 0) legacyProviders.push('gemini');
+    }
+    return { generator: Boolean(legacy?.generator || legacy?.gemini || legacy?.groq) || hasServerKey(), evaluator: Boolean(legacy?.evaluator || legacy?.gemini || legacy?.groq) || hasServerKey(), custom: Boolean(legacy), server: hasServerKey() || hasServerKey('groq'), serverProviders: (['gemini', 'groq'] as const).filter(hasServerKey), legacyProviders, account: null, keys: [], health: [], events: [], settings: { mode: 'priority', maxAttempts: 3 } };
   }
   requireOwner(request);
   const owner = user.id;

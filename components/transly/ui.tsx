@@ -50,14 +50,14 @@ export async function api<T>(url: string, body?: unknown, method = 'POST'): Prom
     if (!pendingRequests.has(operation)) pendingRequests.set(operation, { id: crypto.randomUUID(), expires: Date.now() + 600000 });
     headers['Idempotency-Key'] = pendingRequests.get(operation)!.id;
   }
-  if (pagesMode && getSessionToken()) headers.Authorization = `Bearer ${getSessionToken()}`;
+  if (getSessionToken()) headers.Authorization = `Bearer ${getSessionToken()}`;
   try { response = await fetch(apiOrigin + url, { method, credentials: pagesMode ? 'omit' : 'same-origin', headers, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(100000) }); }
   catch { throw new Error('Koneksi terputus atau permintaan terlalu lama. Jawaban tersimpan; silakan coba kembali.'); }
   let data;
   try { data = await response.json(); } catch { throw new Error('Server belum dapat merespons. Silakan coba kembali.'); }
   if (!response.ok) throw new Error((data as { error?: { message?: string } }).error?.message || 'Terjadi kendala. Silakan coba kembali.');
   if (operation) pendingRequests.delete(operation);
-  if (pagesMode && url === '/api/credentials' && method === 'POST') { const token = (data as { sessionToken?: unknown }).sessionToken; setSessionToken(typeof token === 'string' ? token : ''); }
-  if (pagesMode && url === '/api/credentials' && method === 'DELETE') setSessionToken('');
+  if (url === '/api/credentials' && method === 'POST') { const token = (data as { sessionToken?: unknown }).sessionToken; if (typeof token === 'string') setSessionToken(token); }
+  if (url === '/api/credentials' && method === 'DELETE') setSessionToken('');
   return data as T;
 }

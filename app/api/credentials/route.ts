@@ -31,13 +31,27 @@ export async function POST(request: Request) {
       }
       return json({ saved: true, ...(addedId ? { addedId } : {}), ...await vaultStatus(request) });
     }
-    const data = z.object({ generator: z.string().trim().min(20).max(256), evaluator: z.string().trim().min(20).max(256) }).parse(body);
-    const cookie = await credentialCookie(request, data.generator, data.evaluator);
-    if (isPagesRequest(request)) return json({ saved: true, sessionToken: cookie.split(';')[0].slice('transly_credentials='.length) });
-    return json({ saved: true }, 200, { 'Set-Cookie': cookie });
+    const clientCredentialSchema = z.union([
+      z.object({
+        generator: z.string().trim().min(20).max(256),
+        evaluator: z.string().trim().min(20).max(256),
+      }),
+      z.object({
+        gemini: z.string().trim().min(20).max(256).optional(),
+        groq: z.string().trim().min(20).max(256).optional(),
+        generator: z.string().trim().min(20).max(256).optional(),
+        evaluator: z.string().trim().min(20).max(256).optional(),
+      }).refine(d => Boolean(d.gemini || d.groq || d.generator || d.evaluator), 'Minimal satu API key harus diisi.'),
+    ]);
+    const data = clientCredentialSchema.parse(body);
+    const cookie = await credentialCookie(request, data);
+    const sessionToken = cookie.split(';')[0].slice('transly_credentials='.length);
+    return json({ saved: true, sessionToken, ...(await vaultStatus(request)) }, 200, { 'Set-Cookie': cookie });
   } catch (e) { return errorResponse(e); }
 }
 export async function DELETE(request: Request) {
-  try { await readBody(request); return json({ removed: true }, 200, { 'Set-Cookie': clearCookie(request) }); }
-  catch (e) { return errorResponse(e); }
+  try {
+    await readBody(request);
+    return json({ removed: true, sessionToken: '' }, 200, { 'Set-Cookie': clearCookie(request) });
+  } catch (e) { return errorResponse(e); }
 }

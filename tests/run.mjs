@@ -7,7 +7,7 @@ import ts from 'typescript';
 // Compile the exact source into an ignored folder. Only the platform env import
 // is adapted; provider responses are mocked and never impersonate live AI.
 const dir = path.resolve('.sites-runtime/tests'); await mkdir(dir, { recursive: true });
-for (const name of ['config', 'provider-adapters', 'vault-types', 'schema', 'server', 'sample']) {
+for (const name of ['config', 'provider-adapters', 'vault-types', 'schema', 'server', 'sample', 'client-keys']) {
   const source = (await readFile(`lib/transly/${name}.ts`, 'utf8')).replace(/from '(\.\/[^']+)'/g, "from '$1.js'").replace("import { env } from 'cloudflare:workers';", 'const env = {};');
   await writeFile(path.join(dir, `${name}.js`), ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText);
 }
@@ -246,4 +246,23 @@ await test('readiness follows provider, role, selected key and live cooldown rat
   assert(!roleReady(status, { ...defaultConfig, evaluatorKeyId: crypto.randomUUID(), evaluatorFallback: key.testedModel }, 'evaluator'));
   assert(!roleReady({ ...status, keys: [{ ...key, enabled: false }] }, { ...defaultConfig, evaluatorFallback: key.testedModel }, 'evaluator'));
 });
+
+await test('multi-provider device credentials resolve Gemini and Groq independently', async () => {
+  const req = new Request('https://transly.test/api/credentials');
+  const cookie = await server.credentialCookie(req, { gemini: 'gemini-device-key-12345', groq: 'groq-device-key-67890' });
+  const token = cookie.split(';')[0].slice('transly_credentials='.length);
+  const authedReq = new Request(req.url, { headers: { authorization: `Bearer ${token}` } });
+  assert.equal(await server.resolveKey(authedReq, 'generator', 'gemini'), 'gemini-device-key-12345');
+  assert.equal(await server.resolveKey(authedReq, 'evaluator', 'gemini'), 'gemini-device-key-12345');
+  assert.equal(await server.resolveKey(authedReq, 'generator', 'groq'), 'groq-device-key-67890');
+  assert.equal(await server.resolveKey(authedReq, 'evaluator', 'groq'), 'groq-device-key-67890');
+});
+
+await test('client-keys maskKey handles masking correctly', async () => {
+  const { maskKey } = await import(pathToFileURL(path.join(dir, 'client-keys.js')));
+  assert.equal(maskKey('AIzaSyAbcd1234'), '••••1234');
+  assert.equal(maskKey('short'), '');
+  assert.equal(maskKey(undefined), '');
+});
+
 console.log(`${passed} tests passed. Live Gemini/Groq calls require real user keys.`);

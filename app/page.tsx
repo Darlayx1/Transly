@@ -12,6 +12,8 @@ import { modelLabel } from '@/lib/transly/config';
 import { roleReady } from '@/lib/transly/vault-types';
 import type { RoutingInfo } from '@/lib/transly/vault-types';
 
+import { loadDeviceKeys } from '@/lib/transly/client-keys';
+
 type View = 'setup' | 'practice' | 'review';
 type Confirmation = 'replace' | 'sample-replace' | 'submit';
 const SESSION = 'transly.session.v1';
@@ -23,7 +25,16 @@ export default function Home() {
   const [view, setView] = useState<View>('setup');
   const [settings, setSettings] = useState(false);
   const [busy, setBusy] = useState<'generate' | 'evaluate' | null>(null);
-  const [status, setStatus] = useState<KeyStatus>({ generator: false, evaluator: false, custom: false, server: false });
+  const initialLocalKeys = typeof window !== 'undefined' ? loadDeviceKeys() : {};
+  const hasInitialKeys = Boolean(initialLocalKeys.gemini || initialLocalKeys.groq || initialLocalKeys.generator || initialLocalKeys.evaluator);
+  const initialProviders = (['gemini', 'groq'] as const).filter(p => p === 'gemini' ? Boolean(initialLocalKeys.gemini || initialLocalKeys.generator || initialLocalKeys.evaluator) : Boolean(initialLocalKeys.groq));
+  const [status, setStatus] = useState<KeyStatus>({
+    generator: hasInitialKeys,
+    evaluator: hasInitialKeys,
+    custom: hasInitialKeys,
+    server: false,
+    legacyProviders: initialProviders,
+  });
   const [error, setError] = useState('');
   const [routingMessage, setRoutingMessage] = useState('');
   const [storageFailed, setStorageFailed] = useState(false);
@@ -58,7 +69,21 @@ export default function Home() {
     window.addEventListener('hashchange', route);
     window.addEventListener('popstate', route);
     setReady(true);
-    api<KeyStatus>('/api/credentials', undefined, 'GET').then(setStatus).catch(() => setError('Pengaturan AI belum dapat dimuat. Coba buka Pengaturan AI atau muat ulang halaman.'));
+    const localKeys = loadDeviceKeys();
+    api<KeyStatus>('/api/credentials', undefined, 'GET')
+      .then(async (s) => {
+        if (!s.account && !s.custom && (localKeys.gemini || localKeys.groq || localKeys.generator || localKeys.evaluator)) {
+          try {
+            const synced = await api<KeyStatus>('/api/credentials', localKeys, 'POST');
+            setStatus(synced);
+            return;
+          } catch {
+            // Keep status from GET if sync fails
+          }
+        }
+        setStatus(s);
+      })
+      .catch(() => setError('Pengaturan AI belum dapat dimuat. Coba buka Pengaturan AI atau muat ulang halaman.'));
     return () => { window.removeEventListener('hashchange', route); window.removeEventListener('popstate', route); };
   }, []);
 
