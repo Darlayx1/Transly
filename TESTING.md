@@ -27,7 +27,7 @@ Tes provider otomatis memakai respons simulasi. HTTP smoke melakukan permintaan 
 
 Gemini 3.8 Flash menghasilkan error provider pada satu percobaan production; Gemini 3.5 Flash berhasil untuk generator dan evaluator dengan key yang sama. Ketersediaan masing-masing model bergantung pada akun/provider; daftar model tidak menjamin semua model dapat diakses oleh setiap key.
 
-Push GitHub memerlukan login akun Darlayx1 atau koneksi GitHub yang terautentikasi. Browser dan Git Credential Manager belum memiliki autentikasi tersebut.
+Source telah di-push ke repository publik [Darlayx1/Transly](https://github.com/Darlayx1/Transly), branch `main`, pada 8 Oktober 2026. Autentikasi akun Darlayx1 diverifikasi melalui API GitHub dan commit remote diperiksa setelah push. File credential lokal tidak dilacak Git.
 
 ## Pemeriksaan production
 
@@ -46,4 +46,4 @@ Ulangi pemeriksaan HTTP kapan saja dengan:
 node tests/http-smoke.mjs https://transly-studio.adikagung32.chatgpt.site
 ```
 
-Key pengguna dimasukkan lewat Pengaturan AI di browser production dan tidak disimpan di repository atau variabel environment bersama. Generate, submit, dan evaluasi nyata telah berhasil. Jangan mengklaim Definition of Done penuh sebelum push GitHub berhasil.
+Key pengguna dimasukkan lewat Pengaturan AI di browser production dan tidak disimpan di repository atau variabel environment bersama. Generate, submit, evaluasi nyata, dan push GitHub telah berhasil.

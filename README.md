@@ -97,14 +97,13 @@ npx wrangler secret put SESSION_SECRET --config dist/server/wrangler.json
 npx wrangler deploy --config dist/server/wrangler.json
 ```
 
-Repository GitHub dan penyimpanan source internal Sites adalah tujuan yang berbeda. Push ke GitHub membutuhkan autentikasi akun Darlayx1, lalu:
+Source tersedia di [Darlayx1/Transly](https://github.com/Darlayx1/Transly), branch `main`. Repository GitHub menyimpan source; aplikasi publik berjalan di Sites dengan backend Cloudflare Workers. Untuk memperbarui source dari checkout yang sudah terhubung:
 
 ```sh
-git remote add github https://github.com/Darlayx1/Transly.git
-git push -u github main
+git push github main
 ```
 
-Buat repository kosong bernama Transly lebih dahulu melalui akun yang sesuai. Jangan menyimpan token dalam URL remote.
+Autentikasi Git menggunakan Git Credential Manager. Jangan menyimpan token dalam URL remote.
 
 ## Status pengujian
 
