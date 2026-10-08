@@ -47,3 +47,17 @@ node tests/http-smoke.mjs https://transly-studio.adikagung32.chatgpt.site
 ```
 
 Key pengguna dimasukkan lewat Pengaturan AI di browser production dan tidak disimpan di repository atau variabel environment bersama. Generate, submit, evaluasi nyata, dan push GitHub telah berhasil.
+
+## GitHub Pages
+
+[https://darlayx1.github.io/Transly/](https://darlayx1.github.io/Transly/) diterbitkan melalui workflow GitHub Actions yang berstatus **success** pada 8 Oktober 2026. HTML, stylesheet, JavaScript, dan favicon tersedia pada base path `/Transly/`.
+
+- Alur sampel selesai dengan skor 67/100 dan empat severity highlight.
+- Key pengguna dimasukkan melalui form password; token terenkripsi hanya berada dalam memori tab.
+- Gemini 3.5 Flash membuat soal B1 78 kata dan mengevaluasi jawaban menjadi skor 96/100.
+- Dua highlight tepat pada kutipan, popover desktop, bottom sheet mobile, dan versi ideal tampil.
+- Refresh pada `#review` mempertahankan hasil. Sesi AI harus dimulai lagi setelah refresh sesuai desain.
+- Pada viewport mobile 375 px, scrollWidth 360 px; tidak ada horizontal overflow.
+- Tidak ada console error/warning penting pada flow browser GitHub Pages.
+- `node tests/pages-smoke.mjs` lulus: preflight CORS, token terenkripsi tanpa plaintext key/cookie aplikasi, status credential, dan penolakan origin lain.
+- HTTP smoke cookie same-origin pada backend tetap lulus setelah penambahan dukungan Pages.
