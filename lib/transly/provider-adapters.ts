@@ -25,7 +25,7 @@ export const providerAdapters: Record<Provider, ProviderAdapter> = {
       return {
         url: `https://generativelanguage.googleapis.com/v1beta/models/${model.upstreamId}:generateContent`,
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
-        body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: model.structured ? prompt : `${prompt}\nReturn only valid JSON matching this schema: ${JSON.stringify(schema)}` }] }], generationConfig: model.structured ? { responseMimeType: 'application/json', responseJsonSchema: schema, maxOutputTokens: 16000 } : { maxOutputTokens: 16000, thinkingConfig: { thinkingLevel: 'minimal' } } }),
+        body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: model.structured ? prompt : `${prompt}\nReturn only valid JSON matching this schema: ${JSON.stringify(schema)}` }] }], generationConfig: { ...(model.structured ? { responseMimeType: 'application/json', responseJsonSchema: schema } : {}), maxOutputTokens: 16000, thinkingConfig: { thinkingLevel: 'high' } } }),
       };
     },
     access(key: string, model: Model) {
@@ -41,7 +41,7 @@ export const providerAdapters: Record<Provider, ProviderAdapter> = {
       return {
         url: 'https://api.groq.com/openai/v1/chat/completions',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
-        body: JSON.stringify({ model: model.upstreamId, messages: [{ role: 'user', content: prompt }], reasoning_effort: 'low', max_completion_tokens: 8192, response_format: { type: 'json_schema', json_schema: { name: 'transly_response', strict: true, schema: strictSchema(schema) } } }),
+        body: JSON.stringify({ model: model.upstreamId, messages: [{ role: 'user', content: prompt }], reasoning_effort: 'high', ...(model.upstreamId === 'qwen/qwen3.8-27b' ? { reasoning_format: 'hidden' } : {}), max_completion_tokens: 8192, response_format: { type: 'json_schema', json_schema: { name: 'transly_response', strict: true, schema: strictSchema(schema) } } }),
       };
     },
     access(key: string) {

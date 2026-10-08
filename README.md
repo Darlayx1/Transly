@@ -11,7 +11,7 @@ Buka aplikasi di [GitHub Pages](https://darlayx1.github.io/Transly/). Mode sampe
 - Provider, model, dan key pembuat soal/penilai dipilih secara independen; Gemini dan Groq dapat dipasangkan.
 - Pengaturan AI berupa jendela desktop dan layar penuh mobile, dengan Ringkasan, API key, Model & penggunaan, Cadangan & pemulihan, serta Aktivitas.
 - Gemini 3.5 Flash menjadi pilihan awal karena telah lulus uji generate dan evaluasi production.
-- Gemini 3.8, 3.7, 3.6, 3.5 Flash, 3.5 Flash Lite, dan Gemma 4 31B. Groq menyediakan GPT-OSS 20B dan 120B dengan structured output; akses dan kuota mengikuti akun pengguna.
+- Gemini 3.8, 3.7, 3.6, 3.5 Flash, 3.5 Flash Lite, dan Gemma 4 31B. Groq menyediakan GPT-OSS 20B, GPT-OSS 120B, dan Qwen 3.8 27B dengan structured output; akses dan kuota mengikuti akun pengguna. Semua model menggunakan tingkat thinking tertinggi yang didukung (`high`).
 - Desktop: sumber dan editor berdampingan. Mobile: tab baca/tulis dan bottom sheet feedback.
 - Timer memakai deadline absolut sehingga refresh tidak mengulang waktu. Waktu habis mengunci editor; user mengirim evaluasi secara manual. Jawaban kosong dapat dinilai dengan skor 0.
 - Draft, konfigurasi, dan hasil terakhir tersimpan lokal pada perangkat; tidak berisi credential. Hanya satu sesi terakhir disimpan.

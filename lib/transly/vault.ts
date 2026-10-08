@@ -253,7 +253,7 @@ export async function runWithVault<T>(request: Request, role: Role, model: strin
         catch (error) { await recordFailure(owner, candidate, activeModel, error as AppError); tried.add(candidate.id); lastError = error as AppError; continue; }
         attempts++;
         const secret = await decryptKey(candidate);
-        const raw = await generateJson(secret, activeModel, prompt, schema, { maxAttempts: 1, timeoutMs: Math.max(1, Math.min(30000, deadline - Date.now())), signal: request.signal });
+        const raw = await generateJson(secret, activeModel, prompt, schema, { maxAttempts: 1, timeoutMs: Math.max(1, Math.min(60000, deadline - Date.now())), signal: request.signal });
         let data: T;
         try { data = validate(raw); } catch { throw new AppError('INVALID_RESPONSE', 'Jawaban AI belum lengkap. Sistem akan mencoba kembali jika tersedia.', 502); }
         await statement('UPDATE vault_keys SET successes = successes + 1 WHERE owner = ? AND id = ? AND fingerprint = ?', owner, candidate.id, candidate.fingerprint).run();

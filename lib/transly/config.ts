@@ -26,6 +26,7 @@ export const models = [
   ...geminiModels.map(model => ({ ...model, provider: 'gemini' as const, upstreamId: model.id })),
   { id: 'groq:openai/gpt-oss-20b', name: 'GPT-OSS 20B', provider: 'groq' as const, upstreamId: 'openai/gpt-oss-20b', structured: true },
   { id: 'groq:openai/gpt-oss-120b', name: 'GPT-OSS 120B', provider: 'groq' as const, upstreamId: 'openai/gpt-oss-120b', structured: true },
+  { id: 'groq:qwen/qwen3.8-27b', name: 'Qwen 3.8 27B', provider: 'groq' as const, upstreamId: 'qwen/qwen3.8-27b', structured: true },
 ] as const;
 export const modelProvider = (id: string): Provider => models.find(model => model.id === id)?.provider ?? 'gemini';
 export const modelLabel = (id: string) => { const model = models.find(item => item.id === id); return model ? `${providers[model.provider].shortName} · ${model.name}` : id; };

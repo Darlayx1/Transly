@@ -49,7 +49,7 @@ await test('Gemma 4 name, provider ID and JSON request configuration', async () 
     const body = JSON.parse(options.body);
     assert.equal(body.generationConfig.responseMimeType, undefined);
     assert.equal(body.generationConfig.responseJsonSchema, undefined);
-    assert.deepEqual(body.generationConfig.thinkingConfig, { thinkingLevel: 'minimal' });
+    assert.deepEqual(body.generationConfig.thinkingConfig, { thinkingLevel: 'high' });
     assert(body.contents[0].parts[0].text.includes(JSON.stringify(schema)));
     return Response.json({ candidates: [{ content: { parts: [{ text: '{"title":"Gemma result"}' }] } }] });
   };
@@ -86,7 +86,7 @@ await test('Gemini structured output request configuration', async () => {
     const body = JSON.parse(options.body);
     assert.equal(body.generationConfig.responseMimeType, 'application/json');
     assert.deepEqual(body.generationConfig.responseJsonSchema, schema);
-    assert.equal(body.generationConfig.thinkingConfig, undefined);
+    assert.deepEqual(body.generationConfig.thinkingConfig, { thinkingLevel: 'high' });
     return Response.json({ candidates: [{ content: { parts: [{ text: '{"title":"Gemini result"}' }] } }] });
   };
   assert.deepEqual(await server.generateJson('test-key', 'gemini-3.5-flash', 'prompt', schema), { title: 'Gemini result' });
@@ -190,12 +190,23 @@ await test('Groq uses its fixed endpoint, bearer key, upstream model and strict 
   const schema = { type: 'object', properties: { score: { type: 'number', minimum: 0, maximum: 100 }, nested: { type: 'object', properties: { title: { type: 'string' } } } } };
   globalThis.fetch = async (url, options) => {
     assert.equal(url, 'https://api.groq.com/openai/v1/chat/completions'); assert.equal(options.headers.Authorization, 'Bearer groq-test-only'); assert(!('x-goog-api-key' in options.headers));
-    const body = JSON.parse(options.body); assert.equal(body.model, 'openai/gpt-oss-20b'); assert.equal(body.messages[0].content, 'Original prompt'); assert.equal(body.reasoning_effort, 'low');
+    const body = JSON.parse(options.body); assert.equal(body.model, 'openai/gpt-oss-20b'); assert.equal(body.messages[0].content, 'Original prompt'); assert.equal(body.reasoning_effort, 'high');
     const output = body.response_format.json_schema; assert(output.strict); assert.equal(output.schema.additionalProperties, false); assert.equal(output.schema.properties.nested.additionalProperties, false); assert.deepEqual(output.schema.required, ['score', 'nested']);
     assert.equal(schema.properties.score.maximum, 100); // the canonical validator schema remains unchanged
     return Response.json({ choices: [{ message: { content: '{"score":90,"nested":{"title":"Groq result"}}' }, finish_reason: 'stop' }] });
   };
   assert.equal((await server.generateJson('groq-test-only', 'groq:openai/gpt-oss-20b', 'Original prompt', schema)).score, 90);
+});
+await test('Qwen uses its Groq model ID, high reasoning, hidden thoughts and strict JSON schema', async () => {
+  globalThis.fetch = async (_url, options) => {
+    const body = JSON.parse(options.body);
+    assert.equal(body.model, 'qwen/qwen3.8-27b');
+    assert.equal(body.reasoning_effort, 'high');
+    assert.equal(body.reasoning_format, 'hidden');
+    assert.equal(body.response_format.json_schema.strict, true);
+    return Response.json({ choices: [{ message: { content: '{"title":"Qwen result"}' }, finish_reason: 'stop' }] });
+  };
+  assert.deepEqual(await server.generateJson('groq-test-only', 'groq:qwen/qwen3.8-27b', 'prompt', { type: 'object', properties: { title: { type: 'string' } } }), { title: 'Qwen result' });
 });
 await test('Groq truncation and content filtering cannot become successful evaluations', async () => {
   for (const [reason, code] of [['length', 'RESPONSE_TRUNCATED'], ['content_filter', 'SAFETY_BLOCKED']]) {
