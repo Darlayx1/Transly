@@ -1,6 +1,7 @@
 import { sqliteTable, text, integer, index, uniqueIndex, primaryKey } from 'drizzle-orm/sqlite-core';
 export const vaultKeys = sqliteTable('vault_keys', {
   id: text('id').primaryKey(), owner: text('owner').notNull(), name: text('name').notNull(),
+  provider: text('provider').notNull().default('gemini'), testedModel: text('tested_model'),
   project: text('project').notNull(), role: text('role').notNull(), priority: integer('priority').notNull(),
   enabled: integer('enabled').notNull().default(1), ciphertext: text('ciphertext').notNull(),
   fingerprint: text('fingerprint').notNull(), suffix: text('suffix').notNull(),

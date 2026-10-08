@@ -8,6 +8,8 @@ import { Review } from '@/components/transly/review';
 import { api, ErrorBanner, Processing, Modal } from '@/components/transly/ui';
 import { challengeSchema, configSchema, defaultConfig, evaluationSchema, sessionSchema, type PracticeConfig, type PracticeSession } from '@/lib/transly/schema';
 import { sampleAnswer, sampleChallenge, sampleConfig, sampleEvaluation } from '@/lib/transly/sample';
+import { modelLabel } from '@/lib/transly/config';
+import { roleReady } from '@/lib/transly/vault-types';
 import type { RoutingInfo } from '@/lib/transly/vault-types';
 
 type View = 'setup' | 'practice' | 'review';
@@ -76,13 +78,13 @@ export default function Home() {
   const changeConfig = (next: PracticeConfig) => {
     setConfig(next);
     if (session && !session.result && view === 'practice' && !session.sample) {
-      setSession({ ...session, config: { ...session.config, evaluator: next.evaluator } });
+      setSession({ ...session, config: { ...session.config, evaluator: next.evaluator, evaluatorKeyId: next.evaluatorKeyId, evaluatorFallback: next.evaluatorFallback } });
     }
   };
   const resume = () => { if (session) navigate(session.result ? 'review' : 'practice'); };
   function start() {
     setError('');
-    if (!status.generator || !status.evaluator) { setSettings(true); return; }
+    if (!roleReady(status, config, 'generator') || !roleReady(status, config, 'evaluator')) { setSettings(true); return; }
     if (session && !session.result) setConfirm('replace');
     else void generate();
   }
@@ -103,7 +105,7 @@ export default function Home() {
     try {
       const data = await api<{ routing?: RoutingInfo }>('/api/generate', config);
       const challenge = challengeSchema.parse(data);
-      if (data.routing?.fallback) setRoutingMessage(`Latihan berhasil setelah ${data.routing.attempts.length} percobaan. Menggunakan ${data.routing.attempts.at(-1)?.keyName}.`);
+      if (data.routing?.fallback) setRoutingMessage(`Latihan berhasil setelah ${data.routing.attempts.length} percobaan. Menggunakan ${data.routing.attempts.at(-1)?.keyName} · ${modelLabel(data.routing.model)}.`);
       const now = Date.now();
       setSession({ config: { ...config }, challenge, answer: '', deadline: now + config.duration * 60000, startedAt: now });
       navigate('practice');
@@ -126,11 +128,16 @@ export default function Home() {
       navigate('review');
       return;
     }
+    if (!roleReady(status, session.config, 'evaluator')) {
+      setError('Periksa key dan model penilai terjemahan di Pengaturan AI. Jawabanmu tetap tersimpan.');
+      setSettings(true);
+      return;
+    }
     locked.current = true; setRoutingMessage(''); setBusy('evaluate'); lastAction.current = 'evaluate';
     try {
       const data = await api<{ routing?: RoutingInfo }>('/api/evaluate', { config: session.config, sourceText: session.challenge.sourceText, userTranslation: session.answer });
       const result = evaluationSchema.parse(data);
-      if (data.routing?.fallback) setRoutingMessage(`Evaluasi berhasil setelah ${data.routing.attempts.length} percobaan. Menggunakan ${data.routing.attempts.at(-1)?.keyName}.`);
+      if (data.routing?.fallback) setRoutingMessage(`Evaluasi berhasil setelah ${data.routing.attempts.length} percobaan. Menggunakan ${data.routing.attempts.at(-1)?.keyName} · ${modelLabel(data.routing.model)}.`);
       setSession({ ...session, result });
       navigate('review');
     } catch (e) { setError((e as Error).message); }
@@ -145,7 +152,7 @@ export default function Home() {
     {routingMessage && <div className="routing-notice" role="status"><ShieldCheck size={17}/><span>{routingMessage}</span><button className="text-button" onClick={() => setRoutingMessage('')}>Tutup</button></div>}
     {!ready ? <div className="initial-load" role="status">Menyiapkan ruang latihan…</div> : busy ? <Processing evaluation={busy === 'evaluate'}/> : view === 'practice' && session ? <Practice session={session} onAnswer={answer => setSession({ ...session, answer })} onSubmit={submit} onSampleAnswer={() => setSession({ ...session, answer: sampleAnswer })} onSettings={() => setSettings(true)} storageFailed={storageFailed}/> : view === 'review' && session?.result ? <Review session={session} onNew={() => navigate('setup')}/> : <Setup config={config} onConfig={changeConfig} onStart={start} onSample={startSample} onSettings={() => setSettings(true)} status={status} session={session} onResume={resume}/>}
     <footer className="site-footer"><span><Languages size={15}/>transly</span><span>Belajar memahami. Berlatih menerjemahkan.</span><span><ShieldCheck size={14}/>Key terenkripsi</span></footer>
-    <Settings open={settings} onClose={() => setSettings(false)} config={view === 'practice' && session ? { ...config, evaluator: session.config.evaluator } : config} onConfig={changeConfig} status={status} onStatus={setStatus}/>
+    <Settings open={settings} onClose={() => setSettings(false)} config={view === 'practice' && session ? { ...config, evaluator: session.config.evaluator, evaluatorKeyId: session.config.evaluatorKeyId, evaluatorFallback: session.config.evaluatorFallback } : config} onConfig={changeConfig} status={status} onStatus={setStatus}/>
     <Modal open={Boolean(confirm)} onClose={() => setConfirm(null)} title={confirmationTitle}><div className="modal-body"><p className="muted">{confirmationBody}</p><div className="modal-actions"><button className="secondary-button" onClick={() => setConfirm(null)}>Kembali</button><button className="primary-button" onClick={() => confirm === 'replace' ? void generate() : confirm === 'sample-replace' ? createSample() : void evaluate()}>{confirm === 'replace' ? 'Buat latihan baru' : confirm === 'sample-replace' ? 'Buka sampel' : session?.sample ? 'Lihat contoh' : 'Evaluasi sekarang'}</button></div></div></Modal>
   </div>;
 }

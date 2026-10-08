@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { configSchema, normalizeEvaluation } from '@/lib/transly/schema';
+import { modelProvider } from '@/lib/transly/config';
 import { evaluationJsonSchema } from '@/lib/transly/output-schema';
 import { readBody, resolveKey, throttle, generateJson, AppError, errorResponse, json } from '@/lib/transly/server';
 import { account, runWithVault } from '@/lib/transly/vault';
@@ -15,8 +16,9 @@ export async function POST(request: Request) {
       result.overallScore = input.userTranslation.trim() ? Math.round(s.accuracy * .35 + s.completeness * .20 + s.naturalness * .15 + s.grammar * .10 + s.wordChoice * .10 + s.style * .10) : 0;
       return result;
     };
-    if (account(request)) return json(await runWithVault(request, 'evaluator', input.config.evaluator, prompt, evaluationJsonSchema, validate));
-    const key = await resolveKey(request, 'evaluator'); await throttle(key);
+    if (account(request)) return json(await runWithVault(request, 'evaluator', input.config.evaluator, prompt, evaluationJsonSchema, validate, { keyId: input.config.evaluatorKeyId, fallbackModel: input.config.evaluatorFallback }));
+    if (input.config.evaluatorKeyId || input.config.evaluatorFallback) throw new AppError('SIGN_IN_REQUIRED', 'Masuk untuk menggunakan key dan cadangan dari brankas.', 401);
+    const key = await resolveKey(request, 'evaluator', modelProvider(input.config.evaluator)); await throttle(key);
     const raw = await generateJson(key, input.config.evaluator, prompt, evaluationJsonSchema);
     let result;
     try { result = normalizeEvaluation(raw, input.sourceText, input.userTranslation); }

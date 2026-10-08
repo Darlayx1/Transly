@@ -11,7 +11,8 @@ export async function POST(request: Request) {
       const owner = requireOwner(request);
       await rateLimit(owner, 'management', 30);
       const action = z.enum(['add', 'update', 'remove', 'settings', 'test', 'rotate', 'migrate']).parse(body.action);
-      if (action === 'add') await addKey(owner, body);
+      let addedId: string | undefined;
+      if (action === 'add') addedId = await addKey(owner, body);
       if (action === 'update') await updateKey(owner, body);
       if (action === 'remove') await removeKey(owner, z.string().uuid().parse(body.id));
       if (action === 'settings') await saveSettings(owner, body);
@@ -28,7 +29,7 @@ export async function POST(request: Request) {
         }
         return json({ saved: true, ...await vaultStatus(request) }, 200, { 'Set-Cookie': clearCookie(request) });
       }
-      return json({ saved: true, ...await vaultStatus(request) });
+      return json({ saved: true, ...(addedId ? { addedId } : {}), ...await vaultStatus(request) });
     }
     const data = z.object({ generator: z.string().trim().min(20).max(256), evaluator: z.string().trim().min(20).max(256) }).parse(body);
     const cookie = await credentialCookie(request, data.generator, data.evaluator);

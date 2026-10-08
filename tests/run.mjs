@@ -7,8 +7,8 @@ import ts from 'typescript';
 // Compile the exact source into an ignored folder. Only the platform env import
 // is adapted; provider responses are mocked and never impersonate live AI.
 const dir = path.resolve('.sites-runtime/tests'); await mkdir(dir, { recursive: true });
-for (const name of ['config', 'schema', 'server', 'sample']) {
-  const source = (await readFile(`lib/transly/${name}.ts`, 'utf8')).replace("from './config'", "from './config.js'").replace("from './schema'", "from './schema.js'").replace("import { env } from 'cloudflare:workers';", 'const env = {};');
+for (const name of ['config', 'provider-adapters', 'vault-types', 'schema', 'server', 'sample']) {
+  const source = (await readFile(`lib/transly/${name}.ts`, 'utf8')).replace(/from '(\.\/[^']+)'/g, "from '$1.js'").replace("import { env } from 'cloudflare:workers';", 'const env = {};');
   await writeFile(path.join(dir, `${name}.js`), ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText);
 }
 const { normalizeEvaluation, defaultConfig, challengeSchema, evaluationSchema } = await import(pathToFileURL(path.join(dir, 'schema.js')));
@@ -69,7 +69,7 @@ await test('Pages bearer session decrypts only for the allowed origin without pl
 await test('all models have valid IDs and official display names', () => {
   assert(models.length >= 6);
   for (const m of models) {
-    assert(m.id.startsWith('gemini-') || m.id.startsWith('gemma-'));
+    assert(m.provider === 'groq' ? m.id.startsWith('groq:') : m.id.startsWith('gemini-') || m.id.startsWith('gemma-'));
     assert(m.name.length > 0);
     assert(typeof m.structured === 'boolean');
   }
@@ -185,4 +185,54 @@ await test('parse fenced JSON and omit thinking parts', async()=>{globalThis.fet
 await test('reject invalid JSON',async()=>{globalThis.fetch=async()=>Response.json({candidates:[{content:{parts:[{text:'invalid json'}]}}]});await assert.rejects(server.generateJson('test-key','gemini-3.8-flash','prompt',{}),e=>e.code==='INVALID_RESPONSE');});
 await test('network failure does not reveal internals',async()=>{globalThis.fetch=async()=>{throw new Error('private network detail')};await assert.rejects(server.generateJson('test-key','gemini-3.8-flash','prompt',{}),e=>e.code==='NETWORK_ERROR'&&!e.message.includes('private'));});
 globalThis.fetch=originalFetch;
-console.log(`${passed} tests passed. Live Google AI calls require a real user key.`);
+
+await test('Groq uses its fixed endpoint, bearer key, upstream model and strict recursive schema', async () => {
+  const schema = { type: 'object', properties: { score: { type: 'number', minimum: 0, maximum: 100 }, nested: { type: 'object', properties: { title: { type: 'string' } } } } };
+  globalThis.fetch = async (url, options) => {
+    assert.equal(url, 'https://api.groq.com/openai/v1/chat/completions'); assert.equal(options.headers.Authorization, 'Bearer groq-test-only'); assert(!('x-goog-api-key' in options.headers));
+    const body = JSON.parse(options.body); assert.equal(body.model, 'openai/gpt-oss-20b'); assert.equal(body.messages[0].content, 'Original prompt'); assert.equal(body.reasoning_effort, 'low');
+    const output = body.response_format.json_schema; assert(output.strict); assert.equal(output.schema.additionalProperties, false); assert.equal(output.schema.properties.nested.additionalProperties, false); assert.deepEqual(output.schema.required, ['score', 'nested']);
+    assert.equal(schema.properties.score.maximum, 100); // the canonical validator schema remains unchanged
+    return Response.json({ choices: [{ message: { content: '{"score":90,"nested":{"title":"Groq result"}}' }, finish_reason: 'stop' }] });
+  };
+  assert.equal((await server.generateJson('groq-test-only', 'groq:openai/gpt-oss-20b', 'Original prompt', schema)).score, 90);
+});
+await test('Groq truncation and content filtering cannot become successful evaluations', async () => {
+  for (const [reason, code] of [['length', 'RESPONSE_TRUNCATED'], ['content_filter', 'SAFETY_BLOCKED']]) {
+    globalThis.fetch = async () => Response.json({ choices: [{ message: { content: '{}' }, finish_reason: reason }] });
+    await assert.rejects(server.generateJson('groq-test-only', 'groq:openai/gpt-oss-20b', 'prompt', {}, { maxAttempts: 1 }), e => e.code === code);
+  }
+});
+await test('Groq error mapping respects provider permission and safe Retry-After', async () => {
+  for (const [status, code] of [[401, 'INVALID_KEY'], [403, 'KEY_PERMISSION_DENIED'], [429, 'RATE_LIMIT']]) {
+    globalThis.fetch = async () => Response.json({ error: { message: 'rate limit upstream private detail' } }, { status, headers: { 'Retry-After': '90' } });
+    await assert.rejects(server.generateJson('groq-test-only', 'groq:openai/gpt-oss-20b', 'prompt', {}, { maxAttempts: 1 }), e => e.code === code && !e.message.includes('private detail') && (status !== 429 || e.retryAfterMs === 90000));
+  }
+});
+await test('Gemini legacy credentials never satisfy a Groq model', async () => {
+  const oldGroq = process.env.GROQ_API_KEY; delete process.env.GROQ_API_KEY;
+  const request = new Request('https://transly.test/api/credentials'); const cookie = await server.credentialCookie(request, 'gemini-test-generator-key', 'gemini-test-evaluator-key');
+  const authenticated = new Request(request.url, { headers: { cookie: cookie.split(';')[0] } });
+  await assert.rejects(server.resolveKey(authenticated, 'generator', 'groq'), e => e.code === 'KEY_REQUIRED');
+  process.env.GROQ_API_KEY = 'groq-test-server-only'; assert.equal(await server.resolveKey(authenticated, 'generator', 'groq'), 'groq-test-server-only');
+  if (oldGroq === undefined) delete process.env.GROQ_API_KEY; else process.env.GROQ_API_KEY = oldGroq;
+});
+await test('switching provider clears incompatible key and fallback while preserving same-provider key', async () => {
+  const { withRoleModel } = await import(pathToFileURL(path.join(dir, 'schema.js')));
+  const id = crypto.randomUUID(), config = { ...defaultConfig, evaluatorKeyId: id, evaluatorFallback: 'groq:openai/gpt-oss-20b' };
+  assert.equal(withRoleModel(config, 'evaluator', 'gemini-3.8-flash').evaluatorKeyId, id);
+  const changed = withRoleModel(config, 'evaluator', 'groq:openai/gpt-oss-120b'); assert.equal(changed.evaluatorKeyId, undefined); assert.equal(changed.evaluatorFallback, undefined); assert.equal(changed.generator, config.generator);
+});
+
+await test('readiness follows provider, role, selected key and live cooldown rather than key existence', async () => {
+  const { hasUsableKey, keyAvailability, roleReady } = await import(pathToFileURL(path.join(dir, 'vault-types.js')));
+  const key = { id: crypto.randomUUID(), provider: 'groq', project: 'same-group', role: 'evaluator', priority: 1, enabled: true, invalid: false, testedAt: Date.now(), testedModel: 'groq:openai/gpt-oss-20b' };
+  const status = { account: { email: 'test@example.invalid' }, keys: [key], health: [] };
+  assert(!hasUsableKey(status, 'generator', 'groq:openai/gpt-oss-20b')); assert(!hasUsableKey(status, 'evaluator', defaultConfig.evaluator)); assert(hasUsableKey(status, 'evaluator', key.testedModel, key.id));
+  assert.equal(keyAvailability(key, status, key.testedModel), 'tested'); assert.equal(keyAvailability(key, status, 'groq:openai/gpt-oss-120b'), 'untested');
+  status.health = [{ scope: 'project:groq:same-group', model: key.testedModel, until: Date.now() + 60000, code: 'RATE_LIMIT' }]; assert(!hasUsableKey(status, 'evaluator', key.testedModel));
+  status.health = []; assert(!hasUsableKey(status, 'evaluator', key.testedModel, crypto.randomUUID())); assert(roleReady(status, { ...defaultConfig, evaluatorFallback: key.testedModel }, 'evaluator'));
+  assert(!roleReady(status, { ...defaultConfig, evaluatorKeyId: crypto.randomUUID(), evaluatorFallback: key.testedModel }, 'evaluator'));
+  assert(!roleReady({ ...status, keys: [{ ...key, enabled: false }] }, { ...defaultConfig, evaluatorFallback: key.testedModel }, 'evaluator'));
+});
+console.log(`${passed} tests passed. Live Gemini/Groq calls require real user keys.`);

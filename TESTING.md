@@ -77,3 +77,14 @@ Key pengguna dimasukkan lewat Pengaturan AI di browser production dan tidak disi
 - Diagnostik server-side aman mencatat status upstream dan model ID tanpa pernah mencatat API key atau token kredensial.
 - 30 tes otomatis pada `tests/run.mjs`, TypeScript strict (`tsc --noEmit`), ESLint (`eslint .`), Next build (`npm run build`), dan build GitHub Pages (`npm run build:pages`) seluruhnya lulus.
 - Script live test `tests/live-gemma.mjs` menyediakan pengujian 10 skenario live integration; apabila API key belum disediakan, script melaporkan status `[LIVE_TEST:BLOCKED]` secara transparan tanpa mengklaim hasil palsu.
+
+## Groq + Gemini terpadu — verifikasi lokal 8 Oktober 2026
+
+- 36 tes validasi/provider dan 28 tes integrasi brankas lulus (64 total), dengan respons upstream simulasi.
+- Cakupan baru: empat kombinasi provider pembuat soal/penilai, endpoint dan header yang sesuai, schema JSON Groq, pemetaan error, readiness sesuai model/peran/key, provider cadangan opt-in, budget percobaan bersama, cooldown organisasi Groq, isolasi circuit provider, penggantian secret, cache idempotensi setelah key dihapus, migrasi key lama, backup v2 campuran, dan impor backup v1.
+- `npm run check`, `npm run lint` (tanpa warning), `npm run build`, serta `npm run build:pages` lulus.
+- `node tests/vault-http.mjs http://127.0.0.1:5173` lulus: CRUD kedua provider, metadata masked, penolakan pasangan key/provider yang salah pada generate/evaluate sebelum upstream, provider change tanpa secret baru, autentikasi/origin, ekspor/impor, serta pembersihan seluruh record pengujian.
+- UI diperiksa pada viewport desktop dan 390 × 844: navigasi bagian, formulir provider Groq, daftar model yang mengikuti provider, pilihan cadangan Gemini, pesan key belum tersedia, perlindungan input belum tersimpan melalui tombol Tutup dan Escape, serta reset posisi scroll saat berpindah bagian.
+- Dialog mobile memenuhi lebar layar; tidak ada horizontal overflow di dialog. Tidak ada error console browser pada pratinjau yang diperiksa.
+- Screenshot lokal: `.sites-runtime/qa/ai-settings-desktop.png` (diabaikan Git).
+- Key nyata tidak digunakan dalam pengujian ini. Generate/evaluate live Groq belum diverifikasi. Perubahan ini belum diterbitkan; penerbitan memerlukan migrasi D1 `drizzle/0001_soft_venom.sql` sebelum server baru digunakan.

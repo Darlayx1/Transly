@@ -1,13 +1,14 @@
 import { env } from 'cloudflare:workers';
 import { z } from 'zod';
-import { models } from './config';
+import { models, providers, type Provider } from './config';
+import { providerAdapters, normalizeProviderResponse } from './provider-adapters';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const cookieName = 'transly_credentials';
 export const pagesOrigin = 'https://darlayx1.github.io';
 export const isPagesRequest = (request: Request) => request.headers.get('origin') === pagesOrigin;
-const runtime = env as unknown as { SESSION_SECRET?: string; GEMINI_API_KEY?: string };
+const runtime = env as unknown as { SESSION_SECRET?: string; GEMINI_API_KEY?: string; GROQ_API_KEY?: string };
 export class AppError extends Error {
   constructor(public code: string, message: string, public status = 400, public retryAfterMs = 0) { super(message); }
 }
@@ -67,13 +68,13 @@ export async function credentialCookie(request: Request, generator: string, eval
   return `${cookieName}=${b64(iv)}.${b64(encrypted)}; Path=/api; HttpOnly; SameSite=Strict; Max-Age=86400${new URL(request.url).protocol === 'https:' ? '; Secure' : ''}`;
 }
 export const clearCookie = (request: Request) => `${cookieName}=; Path=/api; HttpOnly; SameSite=Strict; Max-Age=0${new URL(request.url).protocol === 'https:' ? '; Secure' : ''}`;
-export async function resolveKey(request: Request, role: 'generator' | 'evaluator') {
+export async function resolveKey(request: Request, role: 'generator' | 'evaluator', provider: Provider = 'gemini') {
   const keys = await readCredentials(request);
-  const key = keys?.[role] || runtime.GEMINI_API_KEY || process.env.GEMINI_API_KEY;
-  if (!key) throw new AppError('KEY_REQUIRED', 'Tambahkan API key Google AI di Pengaturan AI untuk memulai.');
+  const key = provider === 'gemini' ? keys?.[role] || runtime.GEMINI_API_KEY || process.env.GEMINI_API_KEY : runtime.GROQ_API_KEY || process.env.GROQ_API_KEY;
+  if (!key) throw new AppError('KEY_REQUIRED', `Tambahkan API key ${providers[provider].name} di Pengaturan AI untuk ${role === 'generator' ? 'pembuat soal' : 'penilai terjemahan'}.`);
   return key;
 }
-export const hasServerKey = () => Boolean(runtime.GEMINI_API_KEY || process.env.GEMINI_API_KEY);
+export const hasServerKey = (provider: Provider = 'gemini') => Boolean(provider === 'gemini' ? runtime.GEMINI_API_KEY || process.env.GEMINI_API_KEY : runtime.GROQ_API_KEY || process.env.GROQ_API_KEY);
 
 // Best-effort isolate-local throttling. Upstream quota remains authoritative.
 const requests = new Map<string, { count: number; reset: number }>();
@@ -134,20 +135,7 @@ export async function generateJson(key: string, modelId: string, prompt: string,
   const model = models.find(m => m.id === modelId);
   if (!model) throw new AppError('MODEL_UNAVAILABLE', 'Pilih model yang tersedia.');
 
-  // Gemma uses prompt-based JSON and supports minimal/high thinking levels.
-  // Minimal leaves the output budget for the passage or evaluation itself.
-  const config = model.structured
-    ? { responseMimeType: 'application/json', responseJsonSchema: schema, maxOutputTokens: 16000 }
-    : { maxOutputTokens: 16000, thinkingConfig: { thinkingLevel: 'minimal' } };
-
-  const promptText = model.structured
-    ? prompt
-    : `${prompt}\nReturn only valid JSON matching this schema: ${JSON.stringify(schema)}`;
-
-  const bodyPayload = JSON.stringify({
-    contents: [{ role: 'user', parts: [{ text: promptText }] }],
-    generationConfig: config,
-  });
+  const upstream = providerAdapters[model.provider].request(key, model, prompt, schema);
 
   const maxAttempts = options.maxAttempts ?? 2;
   let lastError: unknown;
@@ -155,10 +143,10 @@ export async function generateJson(key: string, modelId: string, prompt: string,
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     let response: Response;
     try {
-      response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model.id}:generateContent`, {
+      response = await fetch(upstream.url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
-        body: bodyPayload,
+        headers: upstream.headers,
+        body: upstream.body,
         signal: options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(options.timeoutMs ?? 90000)]) : AbortSignal.timeout(options.timeoutMs ?? 90000),
       });
     } catch (e) {
@@ -197,6 +185,7 @@ export async function generateJson(key: string, modelId: string, prompt: string,
         throw new AppError('INVALID_KEY', 'API key tidak valid atau tidak memiliki akses. Perbarui key di Pengaturan AI.', 401);
       }
       if (response.status === 403) {
+        if (model.provider === 'groq') throw new AppError('KEY_PERMISSION_DENIED', 'Key Groq tidak memiliki izin untuk model ini. Periksa izin model di Groq Console.', 403);
         if (/api.?key|credential/i.test(message)) {
           throw new AppError('INVALID_KEY', 'API key tidak valid atau tidak memiliki akses. Perbarui key di Pengaturan AI.', 401);
         }
@@ -218,7 +207,7 @@ export async function generateJson(key: string, modelId: string, prompt: string,
         if (/rate.?limit|requests.?per/i.test(message)) {
           throw new AppError('RATE_LIMIT', 'Batas frekuensi permintaan tercapai. Tunggu sebentar sebelum mencoba lagi.', 429, retryAfterMs || 60000);
         }
-        throw new AppError('QUOTA_EXCEEDED', 'Kuota AI habis atau batas permintaan tercapai. Periksa kuota Google AI atau gunakan cadangan dari proyek lain.', 429, retryAfterMs || (/per.?day|daily/i.test(message) ? 3600000 : 60000));
+        throw new AppError('QUOTA_EXCEEDED', `Kuota ${providers[model.provider].name} terbatas. Periksa kuota atau gunakan cadangan dari kelompok kuota lain.`, 429, retryAfterMs || (/per.?day|daily/i.test(message) ? 3600000 : 60000));
       }
       if (response.status >= 500) {
         if (attempt < maxAttempts) {
@@ -240,7 +229,7 @@ export async function generateJson(key: string, modelId: string, prompt: string,
     };
 
     try {
-      payload = await response.json();
+      payload = normalizeProviderResponse(model.provider, await response.json());
     } catch {
       if (attempt < maxAttempts) {
         await new Promise(r => setTimeout(r, 1000));
