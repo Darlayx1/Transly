@@ -73,34 +73,199 @@ export async function throttle(key: string) {
   if (state && state.reset > now && state.count >= 12) throw new AppError('RATE_LIMIT', 'Terlalu banyak permintaan. Tunggu satu menit sebelum mencoba lagi.', 429);
   requests.set(id, !state || state.reset <= now ? { count: 1, reset: now + 60000 } : { ...state, count: state.count + 1 });
 }
+export function parseJsonResponse(rawText: string): unknown {
+  let text = rawText.trim();
+  if (!text) throw new AppError('EMPTY_RESPONSE', 'AI tidak menghasilkan jawaban. Coba ulangi atau gunakan topik lain.', 502);
+  if (text.length > 500000) throw new AppError('TOO_LARGE', 'Format jawaban AI terlalu besar.', 413);
+
+  // Remove inline thinking tags if any leaked into text
+  text = text.replace(/<(?:thought|think)>[\s\S]*?<\/(?:thought|think)>/gi, '').trim();
+
+  // 1. Direct parse
+  try {
+    return JSON.parse(text);
+  } catch { /* proceed */ }
+
+  // 2. Fenced code block: ```json ... ``` or ``` ... ```
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  if (fenced) {
+    try {
+      return JSON.parse(fenced[1].trim());
+    } catch {
+      const repaired = fenced[1].trim().replace(/,\s*([}\]])/g, '$1');
+      try {
+        return JSON.parse(repaired);
+      } catch { /* proceed */ }
+    }
+  }
+
+  // 3. Extract JSON object { ... }
+  const firstBrace = text.indexOf('{');
+  const lastBrace = text.lastIndexOf('}');
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    const candidate = text.slice(firstBrace, lastBrace + 1);
+    try {
+      return JSON.parse(candidate);
+    } catch {
+      // 4. Controlled repair: remove trailing commas before closing braces/brackets
+      const repaired = candidate.replace(/,\s*([}\]])/g, '$1');
+      try {
+        return JSON.parse(repaired);
+      } catch { /* proceed */ }
+    }
+  }
+
+  throw new AppError('INVALID_RESPONSE', 'Format jawaban AI tidak dapat dibaca. Silakan coba lagi atau pilih model lain.', 502);
+}
+
 export async function generateJson(key: string, modelId: string, prompt: string, schema: unknown): Promise<unknown> {
   const model = models.find(m => m.id === modelId);
   if (!model) throw new AppError('MODEL_UNAVAILABLE', 'Pilih model yang tersedia.');
-  const config = model.structured ? { responseMimeType: 'application/json', responseJsonSchema: schema, maxOutputTokens: 16000 } : { maxOutputTokens: 16000 };
-  let response: Response;
-  try {
-    response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model.id}:generateContent`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
-      body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt + '\nReturn only valid JSON matching this schema: ' + JSON.stringify(schema) }] }], generationConfig: config }),
-      signal: AbortSignal.timeout(90000),
-    });
-  } catch (e) {
-    throw new AppError('NETWORK_ERROR', e instanceof Error && /timeout|abort/i.test(e.name) ? 'AI membutuhkan waktu terlalu lama. Coba kembali atau pilih model lain.' : 'Tidak dapat terhubung ke layanan AI. Periksa koneksi dan coba lagi.', 504);
-  }
-  if (!response.ok) {
-    if (response.status === 401 || response.status === 403 || response.status === 400) {
-      // Do not expose upstream errors, which can contain request details.
-      let message = ''; try { message = String((await response.json() as { error?: { message?: string } }).error?.message ?? ''); } catch { /* ignore */ }
-      if (/api.?key|credential|permission/i.test(message) || response.status !== 400) throw new AppError('INVALID_KEY', 'API key tidak valid atau tidak memiliki akses. Perbarui key di Pengaturan AI.', 401);
-      throw new AppError('MODEL_UNAVAILABLE', 'Model tidak mendukung permintaan ini. Pilih model lain di Pengaturan AI.', 422);
+
+  // Gemma uses prompt-based JSON and supports minimal/high thinking levels.
+  // Minimal leaves the output budget for the passage or evaluation itself.
+  const config = model.structured
+    ? { responseMimeType: 'application/json', responseJsonSchema: schema, maxOutputTokens: 16000 }
+    : { maxOutputTokens: 16000, thinkingConfig: { thinkingLevel: 'minimal' } };
+
+  const promptText = model.structured
+    ? prompt
+    : `${prompt}\nReturn only valid JSON matching this schema: ${JSON.stringify(schema)}`;
+
+  const bodyPayload = JSON.stringify({
+    contents: [{ role: 'user', parts: [{ text: promptText }] }],
+    generationConfig: config,
+  });
+
+  const maxAttempts = 2;
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    let response: Response;
+    try {
+      response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model.id}:generateContent`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+        body: bodyPayload,
+        signal: AbortSignal.timeout(90000),
+      });
+    } catch (e) {
+      const isTimeout = e instanceof Error && /timeout|abort/i.test(e.name);
+      const appErr = new AppError(
+        isTimeout ? 'TIMEOUT' : 'NETWORK_ERROR',
+        isTimeout
+          ? 'AI membutuhkan waktu terlalu lama. Coba kembali atau pilih model lain.'
+          : 'Tidak dapat terhubung ke layanan AI. Periksa koneksi dan coba lagi.',
+        504
+      );
+      console.warn(`[transly:${model.id}] attempt ${attempt} network error: ${appErr.code}`);
+      if (attempt < maxAttempts) {
+        await new Promise(r => setTimeout(r, 1000));
+        continue;
+      }
+      throw appErr;
     }
-    if (response.status === 429) throw new AppError('QUOTA_EXCEEDED', 'Kuota AI habis atau batas permintaan tercapai. Tunggu sebentar, periksa kuota Google AI, atau gunakan key lain.', 429);
-    if (response.status === 404) throw new AppError('MODEL_UNAVAILABLE', 'Model belum tersedia untuk API key ini. Pilih model lain di Pengaturan AI.', 422);
-    throw new AppError('PROVIDER_ERROR', 'Layanan AI sedang bermasalah. Jawaban tetap tersimpan; coba kembali nanti.', 502);
+
+    if (!response.ok) {
+      let message = '';
+      try {
+        message = String((await response.json() as { error?: { message?: string } }).error?.message ?? '');
+      } catch { /* ignore */ }
+
+      console.warn(`[transly:${model.id}] attempt ${attempt} upstream status: ${response.status}`);
+
+      if (response.status === 401) {
+        throw new AppError('INVALID_KEY', 'API key tidak valid atau tidak memiliki akses. Perbarui key di Pengaturan AI.', 401);
+      }
+      if (response.status === 403) {
+        if (/api.?key|credential/i.test(message)) {
+          throw new AppError('INVALID_KEY', 'API key tidak valid atau tidak memiliki akses. Perbarui key di Pengaturan AI.', 401);
+        }
+        if (/permission/i.test(message)) {
+          throw new AppError('KEY_PERMISSION_DENIED', 'API key tidak memiliki izin untuk menggunakan model ini. Pastikan akun memiliki akses.', 403);
+        }
+        throw new AppError('INVALID_KEY', 'API key tidak valid atau tidak memiliki akses. Perbarui key di Pengaturan AI.', 401);
+      }
+      if (response.status === 400) {
+        if (/api.?key|credential/i.test(message)) {
+          throw new AppError('INVALID_KEY', 'API key tidak valid atau tidak memiliki akses. Perbarui key di Pengaturan AI.', 401);
+        }
+        throw new AppError('UNSUPPORTED_PARAMETER', 'Model tidak mendukung format permintaan atau parameter yang dikirim.', 400);
+      }
+      if (response.status === 404) {
+        throw new AppError('MODEL_UNAVAILABLE', 'Model belum tersedia untuk API key ini. Pilih model lain di Pengaturan AI.', 422);
+      }
+      if (response.status === 429) {
+        if (/rate.?limit|requests.?per/i.test(message)) {
+          throw new AppError('RATE_LIMIT', 'Batas frekuensi permintaan tercapai. Tunggu satu menit sebelum mencoba lagi.', 429);
+        }
+        throw new AppError('QUOTA_EXCEEDED', 'Kuota AI habis atau batas permintaan tercapai. Tunggu sebentar, periksa kuota Google AI, atau gunakan key lain.', 429);
+      }
+      if (response.status >= 500) {
+        if (attempt < maxAttempts) {
+          console.warn(`[transly:${model.id}] retrying after provider 5xx...`);
+          await new Promise(r => setTimeout(r, 1000));
+          continue;
+        }
+        throw new AppError('PROVIDER_ERROR', 'Layanan AI sedang bermasalah. Jawaban tetap tersimpan; coba kembali nanti.', 502);
+      }
+      throw new AppError('PROVIDER_ERROR', 'Layanan AI sedang bermasalah. Jawaban tetap tersimpan; coba kembali nanti.', 502);
+    }
+
+    let payload: {
+      candidates?: {
+        content?: { parts?: { text?: string; thought?: boolean }[] };
+        finishReason?: string;
+      }[];
+      promptFeedback?: { blockReason?: string };
+    };
+
+    try {
+      payload = await response.json();
+    } catch {
+      if (attempt < maxAttempts) {
+        await new Promise(r => setTimeout(r, 1000));
+        continue;
+      }
+      throw new AppError('INVALID_RESPONSE', 'Format jawaban AI tidak dapat dibaca. Silakan coba lagi atau pilih model lain.', 502);
+    }
+
+    if (payload.promptFeedback?.blockReason === 'SAFETY') {
+      throw new AppError('SAFETY_BLOCKED', 'Permintaan diblokir oleh kebijakan keamanan AI. Silakan ubah topik atau kalimat yang digunakan.', 422);
+    }
+
+    const candidate = payload.candidates?.[0];
+    if (!candidate) {
+      if (attempt < maxAttempts) {
+        await new Promise(r => setTimeout(r, 1000));
+        continue;
+      }
+      throw new AppError('EMPTY_RESPONSE', 'AI tidak menghasilkan jawaban. Coba ulangi atau gunakan topik lain.', 502);
+    }
+
+    if (candidate.finishReason === 'SAFETY') {
+      throw new AppError('SAFETY_BLOCKED', 'Konten diblokir oleh kebijakan keamanan AI. Silakan ubah topik atau kalimat yang digunakan.', 422);
+    }
+
+    if (candidate.finishReason === 'MAX_TOKENS' || candidate.finishReason === 'LENGTH') {
+      throw new AppError('RESPONSE_TRUNCATED', 'Jawaban AI terpotong karena mencapai batas panjang maksimum token. Silakan coba kembali.', 502);
+    }
+
+    const parts = candidate.content?.parts ?? [];
+    const text = parts.filter(p => !p.thought).map(p => p.text ?? '').join('');
+
+    try {
+      return parseJsonResponse(text);
+    } catch (e) {
+      lastError = e;
+      if (attempt < maxAttempts) {
+        console.warn(`[transly:${model.id}] JSON parse failed on attempt ${attempt}, retrying...`);
+        await new Promise(r => setTimeout(r, 1000));
+        continue;
+      }
+    }
   }
-  const payload = await response.json() as { candidates?: { content?: { parts?: { text?: string; thought?: boolean }[] }; finishReason?: string }[] };
-  const text = payload.candidates?.[0]?.content?.parts?.filter(p => !p.thought).map(p => p.text ?? '').join('') ?? '';
-  if (!text) throw new AppError('EMPTY_RESPONSE', 'AI tidak menghasilkan jawaban. Coba ulangi atau gunakan topik lain.', 502);
-  try { return JSON.parse(text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')); }
-  catch { throw new AppError('INVALID_RESPONSE', 'Format jawaban AI tidak dapat dibaca. Silakan coba lagi atau pilih model lain.', 502); }
+
+  if (lastError instanceof AppError) throw lastError;
+  throw new AppError('INVALID_RESPONSE', 'Format jawaban AI tidak dapat dibaca. Silakan coba lagi atau pilih model lain.', 502);
 }

@@ -5,7 +5,7 @@ import type { PracticeSession } from '@/lib/transly/schema';
 import { countWords } from '@/lib/transly/config';
 
 export function Practice({ session, onAnswer, onSubmit, onSampleAnswer, onSettings, storageFailed }: { session: PracticeSession; onAnswer: (s: string) => void; onSubmit: () => void; onSampleAnswer: () => void; onSettings: () => void; storageFailed: boolean }) {
-  const [now, setNow] = useState(Date.now()); const [tab, setTab] = useState<'source' | 'editor'>('source');
+  const [now, setNow] = useState(() => Date.now()); const [tab, setTab] = useState<'source' | 'editor'>('source');
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 250); return () => clearInterval(timer); }, []);
   const remaining = Math.max(0, Math.ceil((session.deadline - now) / 1000)); const expired = remaining === 0;
   const total = session.config.duration * 60; const words = countWords(session.answer);

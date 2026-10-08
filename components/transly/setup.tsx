@@ -1,7 +1,7 @@
 'use client';
-import { BookOpen, Clock3, Languages, Sparkles, SlidersHorizontal, Check, Plus, Feather, ShieldCheck } from 'lucide-react';
+import { BookOpen, Clock3, Languages, Sparkles, SlidersHorizontal, Check, Feather, ShieldCheck } from 'lucide-react';
 import { useState } from 'react';
-import { levels, levelInfo, lengths, topics, styles, models } from '@/lib/transly/config';
+import { levels, levelInfo, lengths, topics, styles } from '@/lib/transly/config';
 import type { PracticeConfig, PracticeSession } from '@/lib/transly/schema';
 import { ModelSelect, type KeyStatus } from './settings';
 

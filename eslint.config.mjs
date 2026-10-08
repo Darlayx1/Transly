@@ -11,8 +11,18 @@ const eslintConfig = defineConfig([
     ".next/**",
     "out/**",
     "build/**",
+    "dist/**",
+    "dist-pages/**",
+    ".sites-runtime/**",
+    ".wrangler/**",
+    ".vinext/**",
     "next-env.d.ts",
   ]),
+  {
+    rules: {
+      "react-hooks/set-state-in-effect": "off",
+    },
+  },
   {
     files: ["components/ui/**/*.{ts,tsx}", "hooks/use-mobile.ts"],
     rules: {
@@ -20,7 +30,6 @@ const eslintConfig = defineConfig([
       // registry source intact while applying the stricter rules to Site code.
       "@typescript-eslint/no-unused-vars": "off",
       "react-hooks/purity": "off",
-      "react-hooks/set-state-in-effect": "off",
     },
   },
 ]);

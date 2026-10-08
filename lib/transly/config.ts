@@ -15,7 +15,7 @@ export const models = [
   { id: 'gemini-3.6-flash', name: 'Gemini 3.6 Flash', structured: true },
   { id: 'gemini-3.5-flash', name: 'Gemini 3.5 Flash', structured: true },
   { id: 'gemini-3.5-flash-lite', name: 'Gemini 3.5 Flash Lite', structured: true },
-  { id: 'gemma-4-31b-it', name: 'Gemma 31B', structured: false },
+  { id: 'gemma-4-31b-it', name: 'Gemma 4 31B', structured: false },
 ] as const;
 export const defaultModelId = models.find(model => model.id === 'gemini-3.5-flash')?.id ?? models[0].id;
 export const topics = ['General', 'Technology', 'Science', 'Health', 'Education', 'Business', 'Culture', 'Environment', 'Daily Life', 'History', 'Entertainment'];

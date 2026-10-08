@@ -8,7 +8,7 @@ Tanggal: 8 Oktober 2026 (Asia/Makassar).
 - Build production Cloudflare Worker dan aset client.
 - 18 tes validasi/provider/security, model awal, span sampel, serta sesi bearer Pages yang hanya dapat digunakan dari origin yang diizinkan (`npm test`).
 - HTTP smoke: status credential, cookie AES-GCM HttpOnly, status tanpa plaintext key, penolakan key invalid oleh Google sungguhan, penghapusan cookie, dan penolakan cross-origin (`node tests/http-smoke.mjs`).
-- UI konfigurasi: level B2, custom topic, generator Gemini 3.7 dan evaluator Gemma 31B dipilih independen.
+- UI konfigurasi: level B2, custom topic, generator Gemini 3.7 dan evaluator Gemma 4 31B dipilih independen.
 - UI editor: mengetik, navigasi beranda/sesi, refresh, pemulihan draft, serta tab baca/tulis mobile.
 - Timer berjalan menurut deadline absolut; 00:00 mengunci editor tanpa menghapus jawaban.
 - Submit menampilkan konfirmasi; gagal API tidak menghapus draft; retry tersedia.
@@ -61,3 +61,15 @@ Key pengguna dimasukkan lewat Pengaturan AI di browser production dan tidak disi
 - Tidak ada console error/warning penting pada flow browser GitHub Pages.
 - `node tests/pages-smoke.mjs` lulus: preflight CORS, token terenkripsi tanpa plaintext key/cookie aplikasi, status credential, dan penolakan origin lain.
 - HTTP smoke cookie same-origin pada backend tetap lulus setelah penambahan dukungan Pages.
+# Gemma 4 31B — 8 Oktober 2026
+
+- Nama UI diperbaiki dan diseragamkan menjadi `Gemma 4 31B`; provider ID resmi tetap `gemma-4-31b-it`.
+- Request menggunakan `thinkingConfig: { thinkingLevel: 'minimal' }` untuk memaksimalkan budget output pada soal/evaluasi, serta instruksi schema JSON yang ketat.
+- Parser JSON aman (`parseJsonResponse`) menangani respons direct JSON, Markdown code fences (````json````), JSON di dalam teks pengantar/penutup, serta controlled repair untuk trailing comma.
+- Penanganan multi-parts memfilter bagian pemikiran (`thought: true` dan tag `<thought>`) sehingga hanya teks akhir yang diproses.
+- Penanganan `finishReason`: `MAX_TOKENS`/`LENGTH` dipetakan ke `RESPONSE_TRUNCATED`, sedangkan `SAFETY` dipetakan ke `SAFETY_BLOCKED`.
+- Pemetaan error granular: status 400 (`UNSUPPORTED_PARAMETER`), 401 (`INVALID_KEY`), 403 (`KEY_PERMISSION_DENIED`), 404 (`MODEL_UNAVAILABLE`), 429 (`RATE_LIMIT` / `QUOTA_EXCEEDED`), dan 5xx (`PROVIDER_ERROR`).
+- Mekanisme retry terbatas (1x retry dengan delay) otomatis menangani kegagalan sementara seperti HTTP 502 dari Google AI atau gangguan jaringan sesaat.
+- Diagnostik server-side aman mencatat status upstream dan model ID tanpa pernah mencatat API key atau token kredensial.
+- 30 tes otomatis pada `tests/run.mjs`, TypeScript strict (`tsc --noEmit`), ESLint (`eslint .`), Next build (`npm run build`), dan build GitHub Pages (`npm run build:pages`) seluruhnya lulus.
+- Script live test `tests/live-gemma.mjs` menyediakan pengujian 10 skenario live integration; apabila API key belum disediakan, script melaporkan status `[LIVE_TEST:BLOCKED]` secara transparan tanpa mengklaim hasil palsu.
