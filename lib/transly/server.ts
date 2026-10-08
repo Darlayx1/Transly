@@ -5,6 +5,8 @@ import { models } from './config';
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const cookieName = 'transly_credentials';
+export const pagesOrigin = 'https://darlayx1.github.io';
+export const isPagesRequest = (request: Request) => request.headers.get('origin') === pagesOrigin;
 const runtime = env as unknown as { SESSION_SECRET?: string; GEMINI_API_KEY?: string };
 export class AppError extends Error {
   constructor(public code: string, message: string, public status = 400) { super(message); }
@@ -19,8 +21,8 @@ export function errorResponse(error: unknown) {
 }
 export async function readBody(request: Request) {
   const origin = request.headers.get('origin');
-  if (origin && origin !== new URL(request.url).origin) throw new AppError('FORBIDDEN', 'Permintaan tidak diizinkan.', 403);
-  if (request.headers.get('sec-fetch-site') === 'cross-site') throw new AppError('FORBIDDEN', 'Permintaan tidak diizinkan.', 403);
+  if (origin && origin !== new URL(request.url).origin && !isPagesRequest(request)) throw new AppError('FORBIDDEN', 'Permintaan tidak diizinkan.', 403);
+  if (request.headers.get('sec-fetch-site') === 'cross-site' && !isPagesRequest(request)) throw new AppError('FORBIDDEN', 'Permintaan tidak diizinkan.', 403);
   if (!request.headers.get('content-type')?.includes('application/json')) throw new AppError('INVALID_INPUT', 'Format permintaan tidak valid.', 415);
   if (Number(request.headers.get('content-length')) > 60000) throw new AppError('TOO_LARGE', 'Teks terlalu panjang.', 413);
   const text = await request.text();
@@ -37,7 +39,7 @@ const unb64 = (v: string) => Uint8Array.from(atob(v.replaceAll('-', '+').replace
 const credentialSchema = z.object({ generator: z.string().max(256), evaluator: z.string().max(256), expires: z.number() });
 type Credentials = z.infer<typeof credentialSchema>;
 export async function readCredentials(request: Request): Promise<Credentials | null> {
-  const value = request.headers.get('cookie')?.split(';').map(v => v.trim()).find(v => v.startsWith(cookieName + '='))?.slice(cookieName.length + 1);
+  const value = isPagesRequest(request) ? request.headers.get('authorization')?.match(/^Bearer ([A-Za-z0-9_.-]+)$/)?.[1] : request.headers.get('cookie')?.split(';').map(v => v.trim()).find(v => v.startsWith(cookieName + '='))?.slice(cookieName.length + 1);
   if (!value || value.length > 3000) return null;
   try {
     const [iv, encrypted] = value.split('.');

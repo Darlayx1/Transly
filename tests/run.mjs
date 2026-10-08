@@ -39,6 +39,16 @@ process.env.SESSION_SECRET = 'test-only-value-not-a-real-secret-12345678';
 await test('cookie encrypts credentials, is HttpOnly, secure and round-trips', async () => { const req = new Request('https://transly.test/api/credentials'); const cookie = await server.credentialCookie(req,'test-key-generator-123456','test-key-evaluator-123456'); assert(!cookie.includes('test-key')); assert(cookie.includes('HttpOnly')); assert(cookie.includes('Secure')); assert(cookie.includes('SameSite=Strict')); const result = await server.readCredentials(new Request(req.url,{headers:{cookie:cookie.split(';')[0]}})); assert.equal(result.generator,'test-key-generator-123456'); const bad = await server.readCredentials(new Request(req.url,{headers:{cookie:cookie.split(';')[0]+'corrupt'}})); assert.equal(bad,null); });
 await test('reject cross-origin and oversized requests', async () => { await assert.rejects(server.readBody(new Request('https://transly.test/api/generate',{method:'POST',headers:{origin:'https://other.test','content-type':'application/json'},body:'{}'})),e=>e.status===403); await assert.rejects(server.readBody(new Request('https://transly.test/api/generate',{method:'POST',headers:{'content-type':'application/json'},body:'x'.repeat(60001)})),e=>e.status===413); });
 const originalFetch = globalThis.fetch;
+await test('Pages bearer session decrypts only for the allowed origin without plaintext key', async () => {
+  const cookie = await server.credentialCookie(new Request('https://transly.test/api/credentials'), 'test-pages-generator-12345', 'test-pages-evaluator-12345');
+  const token = cookie.split(';')[0].slice('transly_credentials='.length);
+  assert(!token.includes('test-pages'));
+  const headers = { origin: 'https://darlayx1.github.io', authorization: `Bearer ${token}`, 'content-type': 'application/json', 'sec-fetch-site': 'cross-site' };
+  const request = new Request('https://transly.test/api/generate', { method: 'POST', headers, body: '{}' });
+  assert.deepEqual(await server.readBody(request), {});
+  assert.equal((await server.readCredentials(request)).generator, 'test-pages-generator-12345');
+  assert.equal(await server.readCredentials(new Request(request.url, { headers: { ...headers, origin: 'https://other.test' } })), null);
+});
 for (const [status,code] of [[401,'INVALID_KEY'],[403,'INVALID_KEY'],[404,'MODEL_UNAVAILABLE'],[429,'QUOTA_EXCEEDED'],[503,'PROVIDER_ERROR']]) await test(`provider ${status} maps to safe ${code}`,async()=>{ globalThis.fetch=async()=>Response.json({error:{message:'upstream secret detail'}},{status}); await assert.rejects(server.generateJson('test-key','gemini-3.8-flash','prompt',{}),e=>e.code===code&&!e.message.includes('secret')); });
 await test('parse fenced JSON and omit thinking parts', async()=>{globalThis.fetch=async()=>Response.json({candidates:[{content:{parts:[{text:'reasoning',thought:true},{text:'```json\n{"title":"Test"}\n```'}]}}]});assert.deepEqual(await server.generateJson('test-key','gemma-4-31b-it','prompt',{}),{title:'Test'});});
 await test('reject invalid JSON',async()=>{globalThis.fetch=async()=>Response.json({candidates:[{content:{parts:[{text:'invalid json'}]}}]});await assert.rejects(server.generateJson('test-key','gemini-3.8-flash','prompt',{}),e=>e.code==='INVALID_RESPONSE');});

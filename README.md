@@ -2,6 +2,8 @@
 
 Aplikasi latihan menerjemahkan bahasa Inggris ke bahasa Indonesia. AI menyusun soal sesuai konfigurasi, kemudian menilai makna dan kualitas bahasa dengan feedback kontekstual.
 
+Buka aplikasi di [GitHub Pages](https://darlayx1.github.io/Transly/). Mode sampel dapat dicoba tanpa API key. Generator dan evaluator AI terhubung ke backend Transly di Sites.
+
 ## Fitur
 
 - Level A1–C2 dan Native; panjang pendek/sedang/panjang; durasi 5–60 menit.
@@ -72,6 +74,8 @@ Buka **Pengaturan AI** dan masukkan key Google AI Studio. Dua key berbeda dapat 
 
 Teks sumber dan jawaban dikirim ke Google untuk proses AI. Draft dan evaluasi tetap disimpan lokal pada perangkat. Enkripsi cookie melindungi key dari pembacaan JavaScript, tetapi bukan dari kompromi perangkat/browser/server. Rotasi SESSION_SECRET membatalkan cookie lama. Gunakan tombol **Hapus key** untuk menghapus credential pada perangkat bersama.
 
+Pada GitHub Pages, cookie lintas situs tidak digunakan. Server mengembalikan token sesi AES-GCM yang hanya disimpan dalam memori tab dan dikirim melalui header Authorization. Key asli tidak dikembalikan. Refresh menghapus sesi AI sehingga key perlu dimasukkan kembali; draft tetap tersimpan. Backend mengizinkan CORS hanya untuk origin `https://darlayx1.github.io`.
+
 Endpoint membatasi ukuran request, memvalidasi input, menolak cross-origin, membatasi tujuan provider, dan menyembunyikan error internal. Throttling 12 permintaan per key/menit bersifat best-effort per isolate; untuk penggunaan skala besar, tambahkan rate limiting terdistribusi pada gateway. Hindari shared server key pada situs publik tanpa pengendalian kuota tambahan. Tidak ada credential produksi bawaan: user harus memasukkan key aktif. Kuota/billing mengikuti akun Google milik user.
 
 ## Menjalankan pemeriksaan dan build
@@ -85,6 +89,8 @@ npm run build
 Build menghasilkan `dist/server/index.js` sebagai Worker dan `dist/client` sebagai aset. Pengujian otomatis menggunakan respons provider simulasi; tidak mengklaim sukses panggilan AI sungguhan.
 
 ## Deployment
+
+GitHub Pages diterbitkan otomatis oleh `.github/workflows/pages.yml` setiap push ke `main`. Workflow memeriksa TypeScript dan tes, menjalankan `npm run build:pages`, lalu menerbitkan `dist-pages`. Frontend statis menggunakan base path `/Transly/`; routing sesi memakai hash sehingga refresh tidak membutuhkan fallback server. Backend AI tetap di Sites karena GitHub Pages tidak menjalankan API server.
 
 Site ini menggunakan Sites. `.openai/hosting.json` menyimpan identitas Site, bukan secret. Dari sesi Codex dengan plugin Sites, gunakan skill `sites-hosting` untuk push source, mengemas build, menyimpan versi, dan deploy. Atur `SESSION_SECRET` sebagai runtime secret melalui Sites sebelum deploy. Akses publik telah diminta untuk aplikasi ini. Jalankan pemeriksaan URL production dan flow AI dengan key aktif setelah publikasi.
 

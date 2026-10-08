@@ -4,6 +4,9 @@ import type { ConnectorBinding } from "../lib/connector-contract.mjs";
 
 export default {
   async fetch(request: Request, env: Cloudflare.Env, ctx: ExecutionContext<{ CONNECTORS?: ConnectorBinding }>) {
+    const pagesRequest = request.headers.get('origin') === 'https://darlayx1.github.io' && new URL(request.url).pathname.startsWith('/api/');
+    const corsHeaders = { 'Access-Control-Allow-Origin': 'https://darlayx1.github.io', 'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, Authorization', 'Access-Control-Max-Age': '600' };
+    if (request.method === 'OPTIONS' && pagesRequest) return new Response(null, { status: 204, headers: corsHeaders });
     let binding = ctx.props?.CONNECTORS;
     // Local preview emulates the same request-scoped capability. This branch and
     // the auxiliary service binding are absent from production builds.
@@ -25,6 +28,7 @@ export default {
     }
     const response = await runWithConnectorBinding(binding, () => handler.fetch(request, env, ctx));
     const secured = new Response(response.body, response);
+    if (pagesRequest) { for (const [name, value] of Object.entries(corsHeaders)) secured.headers.set(name, value); secured.headers.append('Vary', 'Origin'); }
     secured.headers.set('X-Content-Type-Options', 'nosniff');
     secured.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
     secured.headers.set('X-Frame-Options', 'DENY');

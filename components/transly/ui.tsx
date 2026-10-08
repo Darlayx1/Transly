@@ -2,6 +2,7 @@
 import { LoaderCircle, TriangleAlert, X } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
+import { apiOrigin, pagesMode, getSessionToken, setSessionToken } from '@/lib/transly/transport';
 
 export function Modal({ open, onClose, title, children, className = '' }: { open: boolean; onClose: () => void; title: string; children: ReactNode; className?: string }) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -18,10 +19,14 @@ export function Processing({ evaluation }: { evaluation: boolean }) {
 }
 export async function api<T>(url: string, body?: unknown, method = 'POST'): Promise<T> {
   let response;
-  try { response = await fetch(url, { method, credentials: 'same-origin', headers: body === undefined ? {} : { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(100000) }); }
+  const headers: Record<string, string> = body === undefined ? {} : { 'Content-Type': 'application/json' };
+  if (pagesMode && getSessionToken()) headers.Authorization = `Bearer ${getSessionToken()}`;
+  try { response = await fetch(apiOrigin + url, { method, credentials: pagesMode ? 'omit' : 'same-origin', headers, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(100000) }); }
   catch { throw new Error('Koneksi terputus atau permintaan terlalu lama. Jawaban tersimpan; silakan coba kembali.'); }
   let data;
   try { data = await response.json(); } catch { throw new Error('Server belum dapat merespons. Silakan coba kembali.'); }
   if (!response.ok) throw new Error((data as { error?: { message?: string } }).error?.message || 'Terjadi kendala. Silakan coba kembali.');
+  if (pagesMode && url === '/api/credentials' && method === 'POST') { const token = (data as { sessionToken?: unknown }).sessionToken; setSessionToken(typeof token === 'string' ? token : ''); }
+  if (pagesMode && url === '/api/credentials' && method === 'DELETE') setSessionToken('');
   return data as T;
 }

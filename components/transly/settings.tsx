@@ -4,6 +4,7 @@ import { KeyRound, ShieldCheck, SlidersHorizontal, Check, LoaderCircle } from 'l
 import { models } from '@/lib/transly/config';
 import type { PracticeConfig } from '@/lib/transly/schema';
 import { api, ErrorBanner, Modal } from './ui';
+import { pagesMode } from '@/lib/transly/transport';
 
 export type KeyStatus = { generator: boolean; evaluator: boolean; custom: boolean; server: boolean };
 export function ModelSelect({ role, value, onChange }: { role: 'generator' | 'evaluator'; value: string; onChange: (v: string) => void }) {
@@ -30,7 +31,7 @@ export function Settings({ open, onClose, config, onConfig, status, onStatus }: 
     <form onSubmit={save}><label className="field"><span>{status.custom ? 'Ganti key pembuat soal' : 'Key pembuat soal'}</span><input type="password" value={generator} onChange={e => { setGenerator(e.target.value); setSaved(false); }} autoComplete="off" spellCheck={false} minLength={20} maxLength={256} required placeholder="Masukkan API key"/></label>
       <label className="checkbox-row"><input type="checkbox" checked={same} onChange={e => setSame(e.target.checked)}/>Gunakan key yang sama untuk evaluator</label>
       {!same && <label className="field"><span>Key evaluator</span><input type="password" value={evaluator} onChange={e => setEvaluator(e.target.value)} autoComplete="off" spellCheck={false} minLength={20} maxLength={256} required placeholder="Masukkan API key evaluator"/></label>}
-      <div className="security-note"><ShieldCheck size={20}/><p>Key dienkripsi di server, berlaku 24 jam, dan tidak dapat dibaca JavaScript browser. Hapus key kapan saja di sini.</p></div>
+      <div className="security-note"><ShieldCheck size={20}/><p>{pagesMode ? 'Key dienkripsi oleh server. Sesi terenkripsi hanya disimpan dalam memori tab; masukkan kembali key setelah refresh. Key tidak disimpan di perangkat.' : 'Key dienkripsi di server, berlaku 24 jam, dan tidak dapat dibaca JavaScript browser. Hapus key kapan saja di sini.'}</p></div>
       {error && <ErrorBanner message={error}/>} {saved && <p className="saved-message" role="status"><Check size={17}/> Key tersimpan. Siap digunakan.</p>}
       <div className="modal-actions">{status.custom && <button type="button" className="text-button danger-text" disabled={busy} onClick={remove}>Hapus key</button>}<button className="primary-button" disabled={busy}>{busy ? <LoaderCircle size={18} className="spin"/> : <KeyRound size={17}/>}Simpan key</button></div>
     </form></div></Modal>;
