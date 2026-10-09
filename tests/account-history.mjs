@@ -13,12 +13,13 @@ for (const name of ['config', 'schema', 'sample', 'history', 'account']) {
 }
 const history = await import(pathToFileURL(path.join(dir, 'history.js')));
 const sample = await import(pathToFileURL(path.join(dir, 'sample.js')));
-const { isPublicAccountKey } = await import(pathToFileURL(path.join(dir, 'account.js')));
+const { isPublicAccountKey, accountError } = await import(pathToFileURL(path.join(dir, 'account.js')));
 assert(isPublicAccountKey('sb_publishable_test'));
 assert(isPublicAccountKey(`header.${btoa(JSON.stringify({ role: 'anon' }))}.signature`));
 assert(!isPublicAccountKey('sb_secret_test'));
 assert(!isPublicAccountKey(`header.${btoa(JSON.stringify({ role: 'service_role' }))}.signature`));
 console.log('PASS secret and service_role keys are rejected by the browser client');
+assert.equal(accountError({ message: 'Email address not authorized', code: 'email_address_not_authorized' }), 'Email ini belum diizinkan untuk pendaftaran. Hubungi pengelola Transly.');
 const session = history.identifySession({ config: sample.sampleConfig, challenge: sample.sampleChallenge, answer: 'Draft A', deadline: Date.now() + 60000, startedAt: Date.now(), sample: true });
 const storage = new Map([['transly.session.v1', JSON.stringify(session)]]);
 const reader = { getItem: key => storage.get(key) ?? null };

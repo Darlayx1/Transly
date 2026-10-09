@@ -25,6 +25,7 @@ export function accountClient(): SupabaseClient | null {
 }
 
 export function accountError(error: { message: string; code?: string }): string {
+  if (error.code === 'email_address_not_authorized') return 'Email ini belum diizinkan untuk pendaftaran. Hubungi pengelola Transly.';
   if (error.message.includes('Invalid login credentials')) return 'Email atau kata sandi tidak sesuai.';
   if (error.message.includes('Email not confirmed')) return 'Konfirmasikan email terlebih dahulu dengan kode yang dikirimkan.';
   if (error.code === '23505' || error.code === 'P0001') return 'Sesi ini berubah di perangkat lain. Muat ulang riwayat sebelum melanjutkan; draft perangkat tetap disimpan.';
