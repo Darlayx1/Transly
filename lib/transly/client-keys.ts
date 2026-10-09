@@ -1,4 +1,5 @@
 import type { Provider } from './config';
+import { clientCredentialSchema } from './credential-schema';
 
 export type DeviceKeys = {
   gemini?: string;
@@ -7,6 +8,19 @@ export type DeviceKeys = {
 };
 
 const STORAGE_KEY = 'transly.device_keys.v1';
+
+export function deviceCredentialPayload(keys: DeviceKeys): { generator: string; evaluator: string } {
+  // Keep compatibility with deployed backends that require both role fields.
+  const primary = keys.gemini?.trim() || keys.generator?.trim() || keys.evaluator?.trim();
+  const payload = {
+    generator: keys.gemini?.trim() || keys.generator?.trim() || primary,
+    evaluator: keys.gemini?.trim() || keys.evaluator?.trim() || primary,
+  };
+  if (!clientCredentialSchema.safeParse(payload).success) {
+    throw new Error('API key harus berisi 20–256 karakter tanpa spasi. Periksa key dari Google AI Studio.');
+  }
+  return payload as { generator: string; evaluator: string };
+}
 
 export function loadDeviceKeys(): DeviceKeys {
   if (typeof window === 'undefined') return {};

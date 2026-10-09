@@ -12,7 +12,7 @@ import { modelLabel, type Provider } from '@/lib/transly/config';
 import { roleReady } from '@/lib/transly/vault-types';
 import type { RoutingInfo } from '@/lib/transly/vault-types';
 
-import { loadDeviceKeys } from '@/lib/transly/client-keys';
+import { loadDeviceKeys, deviceCredentialPayload } from '@/lib/transly/client-keys';
 
 type View = 'setup' | 'practice' | 'review';
 type Confirmation = 'replace' | 'sample-replace' | 'submit';
@@ -74,7 +74,7 @@ export default function Home() {
       .then(async (s) => {
         if (!s.account && !s.custom && (localKeys.gemini || localKeys.generator || localKeys.evaluator)) {
           try {
-            const synced = await api<KeyStatus>('/api/credentials', localKeys, 'POST');
+            const synced = await api<KeyStatus>('/api/credentials', deviceCredentialPayload(localKeys), 'POST');
             setStatus(synced);
             return;
           } catch {

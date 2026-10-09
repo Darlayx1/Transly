@@ -7,7 +7,7 @@ import { apiOrigin, pagesMode } from '@/lib/transly/transport';
 import { outcomeLabel, keyAvailability, hasUsableKey, roleReady, type KeyStatus, type VaultKey } from '@/lib/transly/vault-types';
 import { api, ErrorBanner, Modal } from './ui';
 import { backupMaterial } from '@/lib/transly/backup-material';
-import { loadDeviceKeys, saveDeviceKeys, clearDeviceKeys, maskKey, type DeviceKeys } from '@/lib/transly/client-keys';
+import { loadDeviceKeys, saveDeviceKeys, clearDeviceKeys, deviceCredentialPayload, maskKey, type DeviceKeys } from '@/lib/transly/client-keys';
 
 const empty = { provider: 'gemini' as Provider, name: '', project: '', role: 'both' as VaultKey['role'], priority: 1, enabled: true, secret: '' };
 const tabs = [
@@ -100,11 +100,12 @@ export function VaultSettings({ open, onClose, config, onConfig, status, onStatu
     setError('');
     setMessage('');
     try {
+      const payload = deviceCredentialPayload(updated);
       saveDeviceKeys(updated);
       setDeviceKeys(updated);
-      setGeminiInput('');
-      const data = await api<KeyStatus>('/api/credentials', updated, 'POST');
+      const data = await api<KeyStatus>('/api/credentials', payload, 'POST');
       onStatus(data);
+      setGeminiInput('');
       setMessage('API key tersimpan di perangkat ini. Tidak perlu diisi ulang saat refresh atau membuka kembali.');
     } catch (err) {
       setError((err as Error).message);

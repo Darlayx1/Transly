@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { clientCredentialSchema } from '@/lib/transly/credential-schema';
 import { readBody, readCredentials, credentialCookie, clearCookie, errorResponse, json, isPagesRequest } from '@/lib/transly/server';
 import { vaultStatus, requireOwner, addKey, updateKey, removeKey, saveSettings, testKey, rotateVault, rateLimit } from '@/lib/transly/vault';
 export async function GET(request: Request) {
@@ -31,17 +32,6 @@ export async function POST(request: Request) {
       }
       return json({ saved: true, ...(addedId ? { addedId } : {}), ...await vaultStatus(request) });
     }
-    const clientCredentialSchema = z.union([
-      z.object({
-        generator: z.string().trim().min(20).max(256),
-        evaluator: z.string().trim().min(20).max(256),
-      }),
-      z.object({
-        gemini: z.string().trim().min(20).max(256).optional(),
-        generator: z.string().trim().min(20).max(256).optional(),
-        evaluator: z.string().trim().min(20).max(256).optional(),
-      }).refine(d => Boolean(d.gemini || d.generator || d.evaluator), 'Minimal satu API key harus diisi.'),
-    ]);
     const data = clientCredentialSchema.parse(body);
     const cookie = await credentialCookie(request, data);
     const sessionToken = cookie.split(';')[0].slice('transly_credentials='.length);

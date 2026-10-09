@@ -7,7 +7,7 @@ import ts from 'typescript';
 // Compile the exact source into an ignored folder. Only the platform env import
 // is adapted; provider responses are mocked and never impersonate live AI.
 const dir = path.resolve('.sites-runtime/tests'); await mkdir(dir, { recursive: true });
-for (const name of ['config', 'provider-adapters', 'vault-types', 'schema', 'server', 'sample', 'client-keys']) {
+for (const name of ['config', 'provider-adapters', 'vault-types', 'schema', 'server', 'sample', 'credential-schema', 'client-keys']) {
   const source = (await readFile(`lib/transly/${name}.ts`, 'utf8')).replace(/from '(\.\/[^']+)'/g, "from '$1.js'").replace("import { env } from 'cloudflare:workers';", 'const env = {};');
   await writeFile(path.join(dir, `${name}.js`), ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText);
 }
@@ -225,6 +225,28 @@ await test('client-keys maskKey handles masking correctly', async () => {
   assert.equal(maskKey('AIzaSyAbcd1234'), '••••1234');
   assert.equal(maskKey('short'), '');
   assert.equal(maskKey(undefined), '');
+});
+
+await test('device payload works with legacy and current credential contracts', async () => {
+  const { deviceCredentialPayload } = await import(pathToFileURL(path.join(dir, 'client-keys.js')));
+  const { clientCredentialSchema } = await import(pathToFileURL(path.join(dir, 'credential-schema.js')));
+  const { z } = await import('zod');
+  const legacy = z.object({ generator: z.string().min(20).max(256), evaluator: z.string().min(20).max(256) });
+  const key = 'test-only-gemini-key-123456';
+  const payload = deviceCredentialPayload({ gemini: ` ${key} `, generator: 'stale', evaluator: 'stale' });
+  assert.deepEqual(payload, { generator: key, evaluator: key });
+  assert(legacy.safeParse(payload).success);
+  assert(clientCredentialSchema.safeParse(payload).success);
+  assert(clientCredentialSchema.safeParse({ gemini: key }).success);
+  assert.deepEqual(deviceCredentialPayload({ generator: key }), payload);
+  assert.deepEqual(deviceCredentialPayload({ evaluator: key }), payload);
+  const other = 'test-only-evaluator-key-123456';
+  assert.deepEqual(deviceCredentialPayload({ generator: key, evaluator: other }), { generator: key, evaluator: other });
+  for (const bad of ['', 'short', 'x'.repeat(257), 'test-only key-with-spaces-123456']) {
+    assert.throws(() => deviceCredentialPayload({ gemini: bad }));
+    assert(!clientCredentialSchema.safeParse({ gemini: bad }).success);
+  }
+  assert(!clientCredentialSchema.safeParse({}).success);
 });
 
 console.log(`${passed} tests passed. Live Google AI Studio calls require real user keys.`);
