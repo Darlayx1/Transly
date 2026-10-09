@@ -6,22 +6,25 @@ import { Settings, type KeyStatus } from '@/components/transly/settings';
 import { Practice } from '@/components/transly/practice';
 import { Review } from '@/components/transly/review';
 import { api, ErrorBanner, Processing, Modal } from '@/components/transly/ui';
-import { challengeSchema, configSchema, defaultConfig, evaluationSchema, sessionSchema, type PracticeConfig, type PracticeSession } from '@/lib/transly/schema';
+import { challengeSchema, configSchema, defaultConfig, evaluationSchema, type PracticeConfig } from '@/lib/transly/schema';
 import { sampleAnswer, sampleChallenge, sampleConfig, sampleEvaluation } from '@/lib/transly/sample';
 import { modelLabel, type Provider } from '@/lib/transly/config';
 import { roleReady } from '@/lib/transly/vault-types';
 import type { RoutingInfo } from '@/lib/transly/vault-types';
 
 import { loadDeviceKeys, deviceCredentialPayload } from '@/lib/transly/client-keys';
+import { useAccountHistory } from '@/hooks/use-account-history';
+import { AccountPanel } from '@/components/transly/account-panel';
 
 type View = 'setup' | 'practice' | 'review';
 type Confirmation = 'replace' | 'sample-replace' | 'submit';
-const SESSION = 'transly.session.v1';
 const CONFIG = 'transly.config.v1';
 
 export default function Home() {
   const [config, setConfig] = useState<PracticeConfig>(defaultConfig);
-  const [session, setSession] = useState<PracticeSession | null>(null);
+  const history = useAccountHistory();
+  const { session, setSession, ready, storageFailed } = history;
+  const [accountOpen, setAccountOpen] = useState(false);
   const [view, setView] = useState<View>('setup');
   const [settings, setSettings] = useState(false);
   const [busy, setBusy] = useState<'generate' | 'evaluate' | null>(null);
@@ -37,12 +40,13 @@ export default function Home() {
   });
   const [error, setError] = useState('');
   const [routingMessage, setRoutingMessage] = useState('');
-  const [storageFailed, setStorageFailed] = useState(false);
+  const [configStorageFailed, setConfigStorageFailed] = useState(false);
   const [confirm, setConfirm] = useState<Confirmation | null>(null);
-  const [ready, setReady] = useState(false);
   const lastAction = useRef<'generate' | 'evaluate' | null>(null);
   const locked = useRef(false);
   const current = useRef(session); current.current = session;
+  const accountOwner = useRef(history.user?.id || 'guest');
+  accountOwner.current = history.user?.id || 'guest';
 
   const navigate = useCallback((next: View) => {
     setView(next);
@@ -52,15 +56,12 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    let saved: PracticeSession | null = null;
     try {
       const c = configSchema.safeParse(JSON.parse(localStorage.getItem(CONFIG) || 'null'));
       if (c.success) setConfig(c.data);
-      const s = sessionSchema.safeParse(JSON.parse(localStorage.getItem(SESSION) || 'null'));
-      if (s.success) { saved = s.data; setSession(s.data); }
-    } catch { setStorageFailed(true); }
+    } catch { setConfigStorageFailed(true); }
     const route = () => {
-      const s = current.current ?? saved;
+      const s = current.current;
       const h = window.location.hash;
       if (h === '#settings') setSettings(true);
       setView(h === '#review' && s?.result ? 'review' : h === '#practice' && s && !s.result ? 'practice' : 'setup');
@@ -68,7 +69,6 @@ export default function Home() {
     route();
     window.addEventListener('hashchange', route);
     window.addEventListener('popstate', route);
-    setReady(true);
     const localKeys = loadDeviceKeys();
     api<KeyStatus>('/api/credentials', undefined, 'GET')
       .then(async (s) => {
@@ -89,11 +89,18 @@ export default function Home() {
 
   useEffect(() => {
     if (!ready) return;
+    const hash = window.location.hash;
+    setView(hash === '#review' && session?.result ? 'review' : hash === '#practice' && session && !session.result ? 'practice' : 'setup');
+    // Restore the route once storage/authentication finishes loading.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, history.user?.id]);
+
+  useEffect(() => {
+    if (!ready) return;
     try {
       localStorage.setItem(CONFIG, JSON.stringify(config));
-      if (session) localStorage.setItem(SESSION, JSON.stringify(session));
-    } catch { setStorageFailed(true); }
-  }, [config, session, ready]);
+    } catch { setConfigStorageFailed(true); }
+  }, [config, ready]);
   useEffect(() => {
     const protect = (e: BeforeUnloadEvent) => { if (busy) e.preventDefault(); };
     window.addEventListener('beforeunload', protect);
@@ -126,9 +133,11 @@ export default function Home() {
   }
   async function generate() {
     if (locked.current) return;
+    const actionOwner = accountOwner.current;
     locked.current = true; setConfirm(null); setError(''); setRoutingMessage(''); setBusy('generate'); lastAction.current = 'generate';
     try {
       const data = await api<{ routing?: RoutingInfo }>('/api/generate', config);
+      if (accountOwner.current !== actionOwner) throw new Error('Akun berubah saat latihan dibuat. Silakan mulai latihan pada akun yang sedang masuk.');
       const challenge = challengeSchema.parse(data);
       if (data.routing?.fallback) setRoutingMessage(`Latihan berhasil setelah ${data.routing.attempts.length} percobaan. Menggunakan ${data.routing.attempts.at(-1)?.keyName} · ${modelLabel(data.routing.model)}.`);
       const now = Date.now();
@@ -147,6 +156,7 @@ export default function Home() {
   }
   async function evaluate() {
     if (locked.current || !session) return;
+    const actionOwner = accountOwner.current;
     setConfirm(null); setError('');
     if (session.sample) {
       setSession({ ...session, result: sampleEvaluation });
@@ -161,6 +171,7 @@ export default function Home() {
     locked.current = true; setRoutingMessage(''); setBusy('evaluate'); lastAction.current = 'evaluate';
     try {
       const data = await api<{ routing?: RoutingInfo }>('/api/evaluate', { config: session.config, sourceText: session.challenge.sourceText, userTranslation: session.answer });
+      if (accountOwner.current !== actionOwner) throw new Error('Akun berubah saat evaluasi berjalan. Draft tetap tersimpan pada akun asal.');
       const result = evaluationSchema.parse(data);
       if (data.routing?.fallback) setRoutingMessage(`Evaluasi berhasil setelah ${data.routing.attempts.length} percobaan. Menggunakan ${data.routing.attempts.at(-1)?.keyName} · ${modelLabel(data.routing.model)}.`);
       setSession({ ...session, result });
@@ -172,12 +183,13 @@ export default function Home() {
   const confirmationBody = confirm === 'sample-replace' ? 'Draft latihan saat ini akan diganti dengan teks, jawaban, dan evaluasi contoh.' : confirm === 'replace' ? 'Draft latihan saat ini akan diganti setelah teks baru berhasil dibuat.' : session?.sample ? 'Evaluasi ilustratif ini hanya menjelaskan jawaban contoh, tanpa panggilan AI.' : session?.answer.trim() ? 'Terjemahan akan dikunci dan AI mulai meninjau jawabanmu. Pastikan semua kalimat sudah selesai.' : 'Jawabanmu masih kosong. Kamu tetap dapat melihat versi ideal, tetapi nilai pengerjaan adalah 0.';
 
   return <div className="app-shell">
-    <header className="site-header"><div className="header-inner"><button className="brand" onClick={() => { if (!busy) navigate('setup'); }} aria-label="Transly, beranda"><span className="brand-mark"><Languages size={23}/></span>transly<span className="brand-dot">.</span></button><nav aria-label="Navigasi utama"><button className={view === 'setup' ? 'active' : ''} onClick={() => { if (!busy) navigate('setup'); }}>Latihan</button>{session && <button className={view !== 'setup' ? 'active' : ''} onClick={() => { if (!busy) resume(); }}>{session.result ? 'Evaluasi' : 'Sesi aktif'}</button>}</nav><button className="settings-button" aria-label="Pengaturan AI" onClick={() => setSettings(true)} disabled={Boolean(busy)}><SlidersHorizontal size={18}/><span>Pengaturan AI</span></button></div></header>
+    <header className="site-header"><div className="header-inner"><button className="brand" onClick={() => { if (!busy) navigate('setup'); }} aria-label="Transly, beranda"><span className="brand-mark"><Languages size={23}/></span>transly<span className="brand-dot">.</span></button><nav aria-label="Navigasi utama"><button className={view === 'setup' ? 'active' : ''} onClick={() => { if (!busy) navigate('setup'); }}>Latihan</button>{session && <button className={view !== 'setup' ? 'active' : ''} onClick={() => { if (!busy) resume(); }}>{session.result ? 'Evaluasi' : 'Sesi aktif'}</button>}</nav><div className="header-actions"><button className="settings-button" onClick={() => setAccountOpen(true)} disabled={Boolean(busy) || !ready}>Akun & riwayat</button><button className="settings-button" aria-label="Pengaturan AI" onClick={() => setSettings(true)} disabled={Boolean(busy)}><SlidersHorizontal size={18}/><span>Pengaturan AI</span></button></div></div></header>
     {error && <div className="global-error"><ErrorBanner message={error} onDismiss={() => setError('')}/><div className="error-actions"><button className="text-button" onClick={() => setSettings(true)}>Pengaturan AI</button>{lastAction.current && <button className="text-button" disabled={Boolean(busy)} onClick={() => lastAction.current === 'generate' ? void generate() : void evaluate()}>Coba lagi</button>}</div></div>}
     {routingMessage && <div className="routing-notice" role="status"><ShieldCheck size={17}/><span>{routingMessage}</span><button className="text-button" onClick={() => setRoutingMessage('')}>Tutup</button></div>}
-    {!ready ? <div className="initial-load" role="status">Menyiapkan ruang latihan…</div> : busy ? <Processing evaluation={busy === 'evaluate'}/> : view === 'practice' && session ? <Practice session={session} onAnswer={answer => setSession({ ...session, answer })} onSubmit={submit} onSampleAnswer={() => setSession({ ...session, answer: sampleAnswer })} onSettings={() => setSettings(true)} storageFailed={storageFailed}/> : view === 'review' && session?.result ? <Review session={session} onNew={() => navigate('setup')}/> : <Setup config={config} onConfig={changeConfig} onStart={start} onSample={startSample} onSettings={() => setSettings(true)} status={status} session={session} onResume={resume}/>}
+    {!ready ? <div className="initial-load" role="status">Menyiapkan ruang latihan…</div> : busy ? <Processing evaluation={busy === 'evaluate'}/> : view === 'practice' && session ? <Practice session={session} onAnswer={answer => setSession({ ...session, answer })} onSubmit={submit} onSampleAnswer={() => setSession({ ...session, answer: sampleAnswer })} onSettings={() => setSettings(true)} storageFailed={storageFailed || configStorageFailed}/> : view === 'review' && session?.result ? <Review session={session} onNew={() => navigate('setup')}/> : <Setup config={config} onConfig={changeConfig} onStart={start} onSample={startSample} onSettings={() => setSettings(true)} status={status} session={session} onResume={resume}/>}
     <footer className="site-footer"><span><Languages size={15}/>transly</span><span>Belajar memahami. Berlatih menerjemahkan.</span><span><ShieldCheck size={14}/>Key terenkripsi</span></footer>
     <Settings open={settings} onClose={() => setSettings(false)} config={view === 'practice' && session ? { ...config, evaluator: session.config.evaluator, evaluatorKeyId: session.config.evaluatorKeyId, evaluatorFallback: session.config.evaluatorFallback } : config} onConfig={changeConfig} status={status} onStatus={setStatus}/>
+    <AccountPanel open={accountOpen} onClose={() => setAccountOpen(false)} history={history} onResume={id => { const saved = history.entries.find(entry => entry.session.id === id); if (saved) { history.selectSession(id); navigate(saved.session.result ? 'review' : 'practice'); } }}/>
     <Modal open={Boolean(confirm)} onClose={() => setConfirm(null)} title={confirmationTitle}><div className="modal-body"><p className="muted">{confirmationBody}</p><div className="modal-actions"><button className="secondary-button" onClick={() => setConfirm(null)}>Kembali</button><button className="primary-button" onClick={() => confirm === 'replace' ? void generate() : confirm === 'sample-replace' ? createSample() : void evaluate()}>{confirm === 'replace' ? 'Buat latihan baru' : confirm === 'sample-replace' ? 'Buka sampel' : session?.sample ? 'Lihat contoh' : 'Evaluasi sekarang'}</button></div></div></Modal>
   </div>;
 }

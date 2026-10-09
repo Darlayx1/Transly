@@ -108,6 +108,8 @@ Build menghasilkan `dist/server/index.js` sebagai Worker dan `dist/client` sebag
 
 ## Deployment
 
+Login email dan riwayat latihan langsung di GitHub Pages menggunakan Supabase. Buka **Akun & riwayat**; data tamu dan setiap akun dipisahkan. Aktivasi database, konfigurasi email berbasis kode, dan variabel GitHub dijelaskan di [supabase/README.md](supabase/README.md). API AI dan brankas ChatGPT yang sudah ada tetap terpisah dari akun Supabase.
+
 GitHub Pages diterbitkan otomatis oleh `.github/workflows/pages.yml` setiap push ke `main`. Workflow memeriksa TypeScript dan tes, menjalankan `npm run build:pages`, lalu menerbitkan `dist-pages`. Frontend statis menggunakan base path `/Transly/`; routing sesi memakai hash sehingga refresh tidak membutuhkan fallback server. Backend AI tetap di Sites karena GitHub Pages tidak menjalankan API server.
 
 Site ini menggunakan Sites. `.openai/hosting.json` menyimpan identitas Site, bukan secret. Dari sesi Codex dengan plugin Sites, gunakan skill `sites-hosting` untuk push source, mengemas build, menyimpan versi, dan deploy. Atur `SESSION_SECRET` sebagai runtime secret melalui Sites sebelum deploy. Akses publik telah diminta untuk aplikasi ini. Perubahan multi-provider memerlukan migrasi `drizzle/0001_soft_venom.sql` sebelum server baru digunakan; provider key lama otomatis menjadi Gemini tanpa mengubah ciphertext. Preview lokal menerapkan journal migrasi otomatis. Jalankan pemeriksaan URL production dan flow AI dengan key aktif setelah publikasi.

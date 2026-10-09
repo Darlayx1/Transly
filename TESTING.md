@@ -84,3 +84,10 @@ Key pengguna dimasukkan lewat Pengaturan AI di browser production dan tidak disi
 - Cakupan: model Gemini dan Gemma, endpoint Google Generative Language, metadata masked, pemetaan error API key / kuota / rate limit, isolasi circuit, uji akses, ekspor/impor cadangan terenkripsi.
 - `npm run check`, `npm test`, serta `npm run build:pages` lulus.
 - Penyimpanan API key di browser perangkat (localStorage) serta brankas cloud D1 sepenuhnya fokus pada Google AI Studio.
+## Akun dan riwayat GitHub Pages — 10 Oktober 2026
+
+- 35 tes provider/aplikasi, 21 tes brankas, dan 9 pemeriksaan riwayat/akses PostgreSQL lulus.
+- Migrasi Supabase diuji pada PostgreSQL lokal melalui PGlite: akun B tidak dapat membaca/menulis data akun A; akses anonim dan penulisan tabel langsung ditolak; pemeriksaan versi, batas payload, dan deduplikasi event login lulus.
+- Sepuluh skenario browser dengan Supabase simulasi lulus: draft tamu setelah refresh, login dan impor eksplisit, persistensi sesi, logout dan isolasi akun, perangkat kedua, penghentian retry setelah gagal, penyelesaian konflik tanpa menimpa draft, desktop/mobile, pendaftaran dengan kode, serta pemulihan kata sandi di halaman yang sama.
+- Pemeriksaan tipe, build GitHub Pages, dan build backend Sites lulus. Tidak ada error browser pada skenario yang diuji; viewport 390 px tidak mengalami overflow horizontal.
+- Supabase produksi menerima konfigurasi public project URL/key; email aktif, pendaftaran aktif, dan konfirmasi email diwajibkan. Variabel GitHub Actions telah dibuat. Migrasi dan template email produksi menunggu sesi pengelola dashboard; pengujian simulasi tidak membuktikan email atau login produksi sudah berfungsi.
