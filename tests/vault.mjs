@@ -210,10 +210,6 @@ try {
     await rejectCode(backup.importBackup('bob', material.wrappingKey, { ...archive, ciphertext: archive.ciphertext.slice(0, -10) + 'tampered==' }), 'BACKUP_INVALID');
   });
 
-  const groqModel = 'groq:openai/gpt-oss-20b';
-  const addGroq = (name, project = 'org-a', priority = 1, role = 'both') => vault.addKey('alice', { provider: 'groq', name, project, priority, role, enabled: true, secret: 'groq-test-credential-' + name + '-123456789012345' });
-  const groqSuccess = () => Response.json({ choices: [{ message: { content: '{"title":"Validated result"}' }, finish_reason: 'stop' }] });
-  const runModel = (selectedModel, role = 'generator', selection = {}) => vault.runWithVault(request(), role, selectedModel, 'Original request', schema, raw => { assert.equal(typeof raw.title, 'string'); return raw; }, selection);
   await test('legacy SQL migration preserves Gemini ciphertext and owner binding', async () => {
     const legacy = database(); legacy.sqlite.exec(await readFile('drizzle/0000_elite_betty_ross.sql', 'utf8'));
     const id = crypto.randomUUID(), secret = 'legacy-test-secret-123456789012345', ciphertext = await encryption.seal(secret, 'transly:key:alice:' + id);
@@ -224,60 +220,14 @@ try {
     const [key] = await vault.getKeys('alice'); assert.equal(key.provider, 'gemini'); assert.equal(key.ciphertext, ciphertext); assert.equal(key.tested_model, null);
     globalThis.fetch = async () => success(); assert.equal((await run()).title, 'Validated result');
   });
-  await test('all four generator/evaluator provider combinations route only matching credentials', async () => {
-    await add('Gemini', 'shared'); await addGroq('Groq', 'shared');
-    globalThis.fetch = async (url, options) => { if (url.startsWith('https://api.groq.com/')) { assert(options.headers.Authorization.includes('Groq')); assert(!('x-goog-api-key' in options.headers)); return groqSuccess(); } assert(options.headers['x-goog-api-key'].includes('Gemini')); assert(!('Authorization' in options.headers)); return success(); };
-    for (const generator of [model, groqModel]) for (const evaluator of [model, groqModel]) {
-      const a = await runModel(generator, 'generator'), b = await runModel(evaluator, 'evaluator');
-      assert.equal(a.routing.provider, generator === model ? 'gemini' : 'groq'); assert.equal(b.routing.provider, evaluator === model ? 'gemini' : 'groq'); assert.equal(b.routing.model, evaluator);
-    }
-  });
-  await test('provider changes require a new secret and replacement clears test state', async () => {
-    const id = await add('Primary', 'a');
-    await rejectCode(vault.updateKey('alice', { id, provider: 'groq', name: 'Changed', project: 'org', priority: 1, role: 'both', enabled: true }), 'INVALID_INPUT');
-    globalThis.fetch = async () => Response.json({ name: 'models/' + model, supportedGenerationMethods: ['generateContent'] }); await vault.testKey('alice', id, model);
-    await vault.updateKey('alice', { id, provider: 'groq', name: 'Changed', project: 'org', priority: 1, role: 'both', enabled: true, secret: 'new-groq-test-secret-123456789012345' });
-    const [key] = await vault.getKeys('alice'); assert.equal(key.provider, 'groq'); assert.equal(key.tested_at, null); assert.equal(key.tested_model, null);
-  });
-  await test('Groq metadata test never generates, stores model-specific result and rejects wrong provider', async () => {
-    const id = await addGroq('Metadata'); let calls = 0;
-    globalThis.fetch = async (url, options) => { calls++; assert.equal(url, 'https://api.groq.com/openai/v1/models'); assert.equal(options.method, undefined); assert(options.headers.Authorization); return Response.json({ data: [{ id: 'openai/gpt-oss-20b' }] }); };
-    await rejectCode(vault.testKey('alice', id, model), 'INVALID_INPUT'); assert.equal(calls, 0);
-    await vault.testKey('alice', id, groqModel); const status = await vault.vaultStatus(request()); assert.equal(status.keys[0].testedModel, groqModel); assert.equal(status.keys[0].provider, 'groq'); assert(status.keys[0].testedAt);
-  });
-  await test('Groq organization cooldown skips sibling keys without blocking Gemini with same group name', async () => {
-    await addGroq('Primary', 'shared', 1); await addGroq('Sibling', 'shared', 2); await addGroq('Independent', 'different', 3); await add('Gemini', 'shared'); const calls = [];
-    globalThis.fetch = async (url, options) => { if (!url.includes('api.groq.com')) return success(); calls.push(options.headers.Authorization); return options.headers.Authorization.includes('Primary') ? Response.json({ error: { message: 'rate limit' } }, { status: 429, headers: { 'Retry-After': '120' } }) : groqSuccess(); };
-    const result = await runModel(groqModel); assert.equal(calls.length, 2); assert(calls[1].includes('Independent')); assert(result.routing.fallback); await runModel(model);
-    assert((await vault.vaultStatus(request())).health.some(h => h.scope === 'project:groq:shared' && h.until > Date.now() + 119000));
-  });
-  await test('cross-provider fallback is opt-in and records the actual model and provider', async () => {
-    const id = await add('Primary', 'a'); await addGroq('Backup'); const calls = [];
-    globalThis.fetch = async (url, options) => { calls.push(url); return options.headers.Authorization ? groqSuccess() : Response.json({}, { status: 401 }); };
-    await rejectCode(runModel(model), 'INVALID_KEY'); assert.equal(calls.length, 1);
-    const result = await runModel(model, 'generator', { keyId: id, fallbackModel: groqModel }); assert.equal(calls.length, 2); assert.equal(result.routing.provider, 'groq'); assert.equal(result.routing.model, groqModel); assert(result.routing.fallback);
-    await rejectCode(runModel(model, 'generator', { fallbackModel: 'gemini-3.8-flash' }), 'INVALID_INPUT');
-  });
-  await test('cross-provider retry shares the total budget and input, including pinned-key selection', async () => {
-    const id = await add('Pinned', 'a'); await add('OtherGemini', 'b'); await addGroq('Fallback'); const prompts = [];
-    globalThis.fetch = async (url, options) => { const body = JSON.parse(options.body); prompts.push(options.headers.Authorization ? body.messages[0].content : body.contents[0].parts[0].text); return options.headers.Authorization ? groqSuccess() : Response.json({}, { status: 401 }); };
-    const result = await runModel(model, 'generator', { keyId: id, fallbackModel: groqModel }); assert.deepEqual(prompts, ['Original request', 'Original request']); assert.equal(result.routing.attempts.length, 2); assert(result.routing.fallback);
-    const [groqKey] = (await vault.getKeys('alice')).filter(key => key.provider === 'groq'); await rejectCode(runModel(model, 'generator', { keyId: groqKey.id }), 'INVALID_INPUT');
-    await vault.saveSettings('alice', { mode: 'priority', maxAttempts: 1 }); const fresh = await add('Fresh', 'c'); prompts.length = 0;
-    await rejectCode(runModel(model, 'generator', { keyId: fresh, fallbackModel: groqModel }), 'INVALID_KEY'); assert.equal(prompts.length, 1);
-  });
-  await test('provider circuit is isolated and permits explicitly configured provider fallback', async () => {
-    await addGroq('Primary'); await add('FallbackGemini', 'a'); let groqCalls = 0;
-    globalThis.fetch = async (url) => { if (url.includes('api.groq.com')) { groqCalls++; return Response.json({}, { status: 503 }); } return success(); };
-    const result = await runModel(groqModel, 'evaluator', { fallbackModel: model }); assert.equal(groqCalls, 2); assert.equal(result.routing.provider, 'gemini'); assert.equal(result.routing.attempts.length, 3);
-    await runModel(model); assert((await vault.vaultStatus(request())).health.some(h => h.scope === 'provider:groq'));
-  });
-  await test('mixed-provider v2 backup retains provider and authenticates the version', async () => {
+
+  await test('v2 backup retains provider and authenticates the version', async () => {
     const backup = await import(pathToFileURL(path.join(dir, 'vault-backup.js'))), { backupMaterial } = await import(pathToFileURL(path.join(dir, 'backup-material.js')));
-    await add('Gemini', 'a'); await addGroq('Groq'); const material = await backupMaterial('test-only-backup-password'); const archive = await backup.exportBackup('alice', material.wrappingKey, material.salt);
-    assert.equal(archive.version, 2); await backup.importBackup('bob', material.wrappingKey, archive); assert.deepEqual((await vault.getKeys('bob')).map(key => key.provider).sort(), ['gemini', 'groq']);
+    await add('Gemini', 'a'); const material = await backupMaterial('test-only-backup-password'); const archive = await backup.exportBackup('alice', material.wrappingKey, material.salt);
+    assert.equal(archive.version, 2); await backup.importBackup('bob', material.wrappingKey, archive); assert.deepEqual((await vault.getKeys('bob')).map(key => key.provider), ['gemini']);
     await rejectCode(backup.importBackup('bob', material.wrappingKey, { ...archive, version: 1 }), 'BACKUP_INVALID');
   });
+
   await test('v1 encrypted backups remain readable and default restored keys to Gemini', async () => {
     const backup = await import(pathToFileURL(path.join(dir, 'vault-backup.js'))), { backupMaterial } = await import(pathToFileURL(path.join(dir, 'backup-material.js')));
     const material = await backupMaterial('old-backup-test-password'); const key = await crypto.subtle.importKey('raw', Buffer.from(material.wrappingKey, 'base64'), 'AES-GCM', false, ['encrypt']); const iv = crypto.getRandomValues(new Uint8Array(12));
@@ -288,12 +238,12 @@ try {
   });
 
   await test('cached results remain replayable after the selected credential is removed', async () => {
-    const id = await addGroq('Cached'); const req = request(); let calls = 0;
-    globalThis.fetch = async () => { calls++; return groqSuccess(); };
+    const id = await add('Cached', 'a'); const req = request(); let calls = 0;
+    globalThis.fetch = async () => { calls++; return success(); };
     const selection = { keyId: id }, validate = raw => raw;
-    const result = await vault.runWithVault(req, 'generator', groqModel, 'Original request', schema, validate, selection);
+    const result = await vault.runWithVault(req, 'generator', model, 'Original request', schema, validate, selection);
     await vault.removeKey('alice', id);
-    assert.deepEqual(await vault.runWithVault(req, 'generator', groqModel, 'Original request', schema, validate, selection), result); assert.equal(calls, 1);
+    assert.deepEqual(await vault.runWithVault(req, 'generator', model, 'Original request', schema, validate, selection), result); assert.equal(calls, 1);
   });
   console.log(`${passed} vault integration tests passed. Provider responses are simulated.`);
 } finally { globalThis.fetch = originalFetch; runtime.DB?.sqlite.close(); }

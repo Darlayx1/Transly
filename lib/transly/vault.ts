@@ -10,7 +10,7 @@ type KeyRow = { provider: Provider; tested_model: string | null; id: string; own
 type Health = { scope: string; model: string; until: number; code: string; failures: number };
 type Job = { hash: string; status: string; result: string | null; expires: number };
 const FOREVER = 8640000000000000;
-const quotaGroup = (key: KeyRow) => key.provider === 'groq' ? `groq:${key.project}` : key.project;
+const quotaGroup = (key: KeyRow) => key.project;
 const providerScope = (provider: Provider) => `provider:${provider}`;
 const keyContext = (owner: string, id: string) => `transly:key:${owner}:${id}`;
 export function account(request: Request) {
@@ -33,7 +33,7 @@ export function vaultDb() {
   return typeof db.withSession === 'function' ? db.withSession('first-primary') : db;
 }
 const statement = (sql: string, ...values: (string | number | null)[]) => vaultDb().prepare(sql).bind(...values);
-export async function getKeys(owner: string) { return (await statement('SELECT * FROM vault_keys WHERE owner = ? ORDER BY priority, created_at, id', owner).all<KeyRow>()).results; }
+export async function getKeys(owner: string) { return (await statement("SELECT * FROM vault_keys WHERE owner = ? AND provider = 'gemini' ORDER BY priority, created_at, id", owner).all<KeyRow>()).results; }
 async function getHealth(owner: string) { return (await statement('SELECT * FROM vault_health WHERE owner = ?', owner).all<Health>()).results; }
 export async function getSettings(owner: string) {
   return await statement('SELECT mode, max_attempts AS maxAttempts FROM vault_settings WHERE owner = ?', owner).first<{ mode: 'priority' | 'balanced'; maxAttempts: number }>() || { mode: 'priority' as const, maxAttempts: 3 };
@@ -43,12 +43,10 @@ export async function vaultStatus(request: Request) {
   if (!user) {
     const legacy = await readCredentials(request);
     const legacyProviders: Provider[] = [];
-    if (legacy) {
-      if (legacy.gemini || (legacy.generator && !legacy.generator.startsWith('gsk_')) || (legacy.evaluator && !legacy.evaluator.startsWith('gsk_'))) legacyProviders.push('gemini');
-      if (legacy.groq || (legacy.generator && (legacy.generator.startsWith('gsk_') || legacy.generator.includes('groq'))) || (legacy.evaluator && (legacy.evaluator.startsWith('gsk_') || legacy.evaluator.includes('groq')))) legacyProviders.push('groq');
-      if (legacyProviders.length === 0) legacyProviders.push('gemini');
+    if (legacy && (legacy.gemini || legacy.generator || legacy.evaluator)) {
+      legacyProviders.push('gemini');
     }
-    return { generator: Boolean(legacy?.generator || legacy?.gemini || legacy?.groq) || hasServerKey(), evaluator: Boolean(legacy?.evaluator || legacy?.gemini || legacy?.groq) || hasServerKey(), custom: Boolean(legacy), server: hasServerKey() || hasServerKey('groq'), serverProviders: (['gemini', 'groq'] as const).filter(hasServerKey), legacyProviders, account: null, keys: [], health: [], events: [], settings: { mode: 'priority', maxAttempts: 3 } };
+    return { generator: Boolean(legacy?.generator || legacy?.gemini) || hasServerKey(), evaluator: Boolean(legacy?.evaluator || legacy?.gemini) || hasServerKey(), custom: Boolean(legacy), server: hasServerKey(), serverProviders: hasServerKey() ? (['gemini'] as const) : ([] as const), legacyProviders, account: null, keys: [], health: [], events: [], settings: { mode: 'priority', maxAttempts: 3 } };
   }
   requireOwner(request);
   const owner = user.id;
@@ -67,7 +65,7 @@ export async function vaultStatus(request: Request) {
     health: health.filter(h => h.until > Date.now()), settings, events: events.results.map(e => ({ ...e, provider: modelProvider(String(e.model)) })), running: progress.results.map(j => j.id),
   };
 }
-const keyFields = z.object({ provider: z.enum(['gemini', 'groq']).default('gemini'), name: z.string().trim().min(1).max(60), project: z.string().trim().max(100).transform(s => s || 'unknown'), role: z.enum(['generator', 'evaluator', 'both']), priority: z.number().int().min(1).max(100), enabled: z.boolean().default(true) });
+const keyFields = z.object({ provider: z.literal('gemini').default('gemini'), name: z.string().trim().min(1).max(60), project: z.string().trim().max(100).transform(s => s || 'unknown'), role: z.enum(['generator', 'evaluator', 'both']), priority: z.number().int().min(1).max(100), enabled: z.boolean().default(true) });
 const keySecret = z.string().trim().min(20).max(256).regex(/^[\x21-\x7E]+$/, 'API key harus berisi karakter ASCII tanpa spasi.');
 const keyInput = keyFields.extend({ secret: keySecret });
 async function ownedKey(owner: string, id: string) {
@@ -200,7 +198,7 @@ async function clean(owner: string) {
 }
 export async function runWithVault<T>(request: Request, role: Role, model: string, prompt: string, schema: unknown, validate: (raw: unknown) => T, selection: { keyId?: string; fallbackModel?: string } = {}): Promise<T & { routing?: unknown }> {
   const owner = requireOwner(request), deadline = Date.now() + 85000;
-  if (!models.some(item => item.id === model) || (selection.fallbackModel && (!models.some(item => item.id === selection.fallbackModel) || modelProvider(selection.fallbackModel) === modelProvider(model)))) throw new AppError('INVALID_INPUT', 'Pilih model cadangan dari provider lain.');
+  if (!models.some(item => item.id === model) || (selection.fallbackModel && (!models.some(item => item.id === selection.fallbackModel) || selection.fallbackModel === model))) throw new AppError('INVALID_INPUT', 'Pilih model yang tersedia.');
   let activeModel = model;
   const suppliedId = request.headers.get('idempotency-key');
   if (suppliedId && !/^[a-zA-Z0-9_-]{16,80}$/.test(suppliedId)) throw new AppError('INVALID_INPUT', 'Identitas permintaan tidak valid.');

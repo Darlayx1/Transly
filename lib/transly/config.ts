@@ -10,8 +10,7 @@ export const levelInfo: Record<string, { name: string; detail: string }> = {
 };
 // Provider IDs live here only. Add or replace models without changing the UI or routes.
 export const providers = {
-  gemini: { name: 'Google Gemini', shortName: 'Gemini', keyUrl: 'https://aistudio.google.com/api-keys', groupLabel: 'Project ID Google Cloud', groupHint: 'Key dari proyek Google yang sama berbagi kuota.' },
-  groq: { name: 'Groq', shortName: 'Groq', keyUrl: 'https://console.groq.com/keys', groupLabel: 'Organisasi Groq', groupHint: 'Key dari organisasi Groq yang sama berbagi kuota.' },
+  gemini: { name: 'Google Gemini', shortName: 'Google AI Studio', keyUrl: 'https://aistudio.google.com/api-keys', groupLabel: 'Project ID Google Cloud', groupHint: 'Key dari proyek Google yang sama berbagi kuota.' },
 } as const;
 export type Provider = keyof typeof providers;
 const geminiModels = [
@@ -24,14 +23,11 @@ const geminiModels = [
 ] as const;
 export const models = [
   ...geminiModels.map(model => ({ ...model, provider: 'gemini' as const, upstreamId: model.id })),
-  { id: 'groq:openai/gpt-oss-20b', name: 'GPT-OSS 20B', provider: 'groq' as const, upstreamId: 'openai/gpt-oss-20b', structured: true },
-  { id: 'groq:openai/gpt-oss-120b', name: 'GPT-OSS 120B', provider: 'groq' as const, upstreamId: 'openai/gpt-oss-120b', structured: true },
-  { id: 'groq:qwen/qwen3.8-27b', name: 'Qwen 3.8 27B', provider: 'groq' as const, upstreamId: 'qwen/qwen3.8-27b', structured: true },
 ] as const;
-export const modelProvider = (id: string): Provider => models.find(model => model.id === id)?.provider ?? 'gemini';
-export const modelLabel = (id: string) => { const model = models.find(item => item.id === id); return model ? `${providers[model.provider].shortName} · ${model.name}` : id; };
+export const modelProvider = (_id?: string): Provider => 'gemini';
+export const modelLabel = (id: string) => { const model = models.find(item => item.id === id); return model ? model.name : id; };
 export const defaultModelId = models.find(model => model.id === 'gemini-3.5-flash')?.id ?? models[0].id;
-export const defaultProviderModel = (provider: Provider) => provider === 'gemini' ? defaultModelId : 'groq:openai/gpt-oss-20b';
+export const defaultProviderModel = (_provider?: Provider) => defaultModelId;
 export const topics = ['General', 'Technology', 'Science', 'Health', 'Education', 'Business', 'Culture', 'Environment', 'Daily Life', 'History', 'Entertainment'];
 export const styles = ['Casual', 'Neutral', 'Formal', 'Academic', 'Professional', 'Conversational', 'Narrative', 'News Style', 'Descriptive'];
 export const lengths = { short: { label: 'Pendek', range: '60–100', min: 60, max: 100 }, medium: { label: 'Sedang', range: '150–220', min: 150, max: 220 }, long: { label: 'Panjang', range: '300–450', min: 300, max: 450 } };

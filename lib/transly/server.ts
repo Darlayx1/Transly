@@ -8,7 +8,7 @@ const decoder = new TextDecoder();
 const cookieName = 'transly_credentials';
 export const pagesOrigin = 'https://darlayx1.github.io';
 export const isPagesRequest = (request: Request) => request.headers.get('origin') === pagesOrigin;
-const runtime = env as unknown as { SESSION_SECRET?: string; GEMINI_API_KEY?: string; GROQ_API_KEY?: string };
+const runtime = env as unknown as { SESSION_SECRET?: string; GEMINI_API_KEY?: string };
 export class AppError extends Error {
   constructor(public code: string, message: string, public status = 400, public retryAfterMs = 0) { super(message); }
 }
@@ -53,7 +53,6 @@ const credentialSchema = z.object({
   generator: z.string().max(256).optional(),
   evaluator: z.string().max(256).optional(),
   gemini: z.string().max(256).optional(),
-  groq: z.string().max(256).optional(),
   expires: z.number(),
 });
 type Credentials = z.infer<typeof credentialSchema>;
@@ -61,7 +60,6 @@ export type DeviceCredentialInput = {
   generator?: string;
   evaluator?: string;
   gemini?: string;
-  groq?: string;
 };
 export async function readCredentials(request: Request): Promise<Credentials | null> {
   const origin = request.headers.get('origin');
@@ -95,16 +93,11 @@ export async function credentialCookie(request: Request, generatorOrInput: strin
 export const clearCookie = (request: Request) => `${cookieName}=; Path=/api; HttpOnly; SameSite=Strict; Max-Age=0${new URL(request.url).protocol === 'https:' ? '; Secure' : ''}`;
 export async function resolveKey(request: Request, role: 'generator' | 'evaluator', provider: Provider = 'gemini') {
   const keys = await readCredentials(request);
-  let key: string | undefined;
-  if (provider === 'gemini') {
-    key = (keys?.[role] && !keys[role]?.startsWith('gsk_') ? keys[role] : undefined) || keys?.gemini || runtime.GEMINI_API_KEY || process.env.GEMINI_API_KEY;
-  } else if (provider === 'groq') {
-    key = (keys?.[role] && !keys[role]?.startsWith('AIza') && !keys[role]?.startsWith('gemini') ? keys[role] : undefined) || keys?.groq || runtime.GROQ_API_KEY || process.env.GROQ_API_KEY;
-  }
+  const key = (keys?.[role] && !keys[role]?.startsWith('gsk_') ? keys[role] : undefined) || keys?.gemini || runtime.GEMINI_API_KEY || process.env.GEMINI_API_KEY;
   if (!key) throw new AppError('KEY_REQUIRED', `Tambahkan API key ${providers[provider].name} di Pengaturan AI untuk ${role === 'generator' ? 'pembuat soal' : 'penilai terjemahan'}.`);
   return key;
 }
-export const hasServerKey = (provider: Provider = 'gemini') => Boolean(provider === 'gemini' ? runtime.GEMINI_API_KEY || process.env.GEMINI_API_KEY : runtime.GROQ_API_KEY || process.env.GROQ_API_KEY);
+export const hasServerKey = (_provider: Provider = 'gemini') => Boolean(runtime.GEMINI_API_KEY || process.env.GEMINI_API_KEY);
 
 // Best-effort isolate-local throttling. Upstream quota remains authoritative.
 const requests = new Map<string, { count: number; reset: number }>();
@@ -215,7 +208,6 @@ export async function generateJson(key: string, modelId: string, prompt: string,
         throw new AppError('INVALID_KEY', 'API key tidak valid atau tidak memiliki akses. Perbarui key di Pengaturan AI.', 401);
       }
       if (response.status === 403) {
-        if (model.provider === 'groq') throw new AppError('KEY_PERMISSION_DENIED', 'Key Groq tidak memiliki izin untuk model ini. Periksa izin model di Groq Console.', 403);
         if (/api.?key|credential/i.test(message)) {
           throw new AppError('INVALID_KEY', 'API key tidak valid atau tidak memiliki akses. Perbarui key di Pengaturan AI.', 401);
         }

@@ -16,12 +16,12 @@ export type KeyStatus = {
   settings?: { mode: 'priority' | 'balanced'; maxAttempts: number };
 };
 export type RoutingInfo = { requestId: string; fallback: boolean; provider: Provider; model: string; attempts: { keyName: string; provider: Provider; model: string; outcome: string; attempt: number }[] };
-export const quotaScope = (key: Pick<VaultKey, 'provider' | 'project'>) => `project:${key.provider === 'groq' ? `groq:${key.project}` : key.project}`;
+export const quotaScope = (key: Pick<VaultKey, 'project'>) => `project:${key.project}`;
 export function keyAvailability(key: VaultKey, status: KeyStatus, model: string, now = Date.now()) {
   if (key.provider !== modelProvider(model)) return 'wrong-provider';
   if (!key.enabled) return 'disabled';
   if (key.invalid) return 'invalid';
-  const blocked = status.health?.find(h => h.model === model && h.until > now && [`provider:${key.provider}`, ...(key.provider === 'gemini' ? ['provider'] : []), `key:${key.id}`, quotaScope(key)].includes(h.scope));
+  const blocked = status.health?.find(h => h.model === model && h.until > now && ['provider:gemini', 'provider', `key:${key.id}`, quotaScope(key)].includes(h.scope));
   if (blocked) return blocked.until > 8e15 ? 'permission' : 'cooldown';
   return key.testedAt && key.testedModel === model ? 'tested' : 'untested';
 }

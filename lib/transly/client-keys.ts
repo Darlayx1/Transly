@@ -2,7 +2,6 @@ import type { Provider } from './config';
 
 export type DeviceKeys = {
   gemini?: string;
-  groq?: string;
   generator?: string;
   evaluator?: string;
 };
@@ -18,7 +17,6 @@ export function loadDeviceKeys(): DeviceKeys {
     if (typeof parsed !== 'object' || parsed === null) return {};
     return {
       gemini: typeof parsed.gemini === 'string' && parsed.gemini.trim().length >= 20 ? parsed.gemini.trim() : undefined,
-      groq: typeof parsed.groq === 'string' && parsed.groq.trim().length >= 20 ? parsed.groq.trim() : undefined,
       generator: typeof parsed.generator === 'string' && parsed.generator.trim().length >= 20 ? parsed.generator.trim() : undefined,
       evaluator: typeof parsed.evaluator === 'string' && parsed.evaluator.trim().length >= 20 ? parsed.evaluator.trim() : undefined,
     };
@@ -32,7 +30,6 @@ export function saveDeviceKeys(keys: DeviceKeys): void {
   try {
     const sanitized: DeviceKeys = {};
     if (keys.gemini?.trim()) sanitized.gemini = keys.gemini.trim();
-    if (keys.groq?.trim()) sanitized.groq = keys.groq.trim();
     if (keys.generator?.trim()) sanitized.generator = keys.generator.trim();
     if (keys.evaluator?.trim()) sanitized.evaluator = keys.evaluator.trim();
     localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
@@ -50,13 +47,11 @@ export function clearDeviceKeys(): void {
   }
 }
 
-export function getDeviceKey(provider: Provider, keys: DeviceKeys = loadDeviceKeys()): string | undefined {
-  if (provider === 'gemini') return keys.gemini || keys.generator || keys.evaluator;
-  if (provider === 'groq') return keys.groq;
-  return undefined;
+export function getDeviceKey(_provider: Provider = 'gemini', keys: DeviceKeys = loadDeviceKeys()): string | undefined {
+  return keys.gemini || keys.generator || keys.evaluator;
 }
 
-export function hasDeviceKey(provider: Provider, keys: DeviceKeys = loadDeviceKeys()): boolean {
+export function hasDeviceKey(provider: Provider = 'gemini', keys: DeviceKeys = loadDeviceKeys()): boolean {
   return Boolean(getDeviceKey(provider, keys));
 }
 

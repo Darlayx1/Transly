@@ -8,10 +8,10 @@ Buka aplikasi di [GitHub Pages](https://darlayx1.github.io/Transly/). Mode sampe
 
 - Level A1–C2 dan Native; panjang pendek/sedang/panjang; durasi 5–60 menit.
 - Topik otomatis, pilihan topik, topik custom, dan sembilan gaya bahasa.
-- Provider, model, dan key pembuat soal/penilai dipilih secara independen; Gemini dan Groq dapat dipasangkan.
+- Provider, model, dan key pembuat soal/penilai dipilih secara independen dari katalog Google AI Studio (Gemini).
 - Pengaturan AI berupa jendela desktop dan layar penuh mobile, dengan Ringkasan, API key, Model & penggunaan, Cadangan & pemulihan, serta Aktivitas.
 - Gemini 3.5 Flash menjadi pilihan awal karena telah lulus uji generate dan evaluasi production.
-- Gemini 3.8, 3.7, 3.6, 3.5 Flash, 3.5 Flash Lite, dan Gemma 4 31B. Groq menyediakan GPT-OSS 20B, GPT-OSS 120B, dan Qwen 3.8 27B dengan structured output; akses dan kuota mengikuti akun pengguna. Semua model menggunakan tingkat thinking tertinggi yang didukung (`high`).
+- Mendukung Gemini 3.8 Flash, 3.7 Flash, 3.6 Flash, 3.5 Flash, 3.5 Flash Lite, dan Gemma 4 31B melalui Google AI Studio. Akses dan kuota mengikuti akun Google pengguna. Semua model menggunakan tingkat thinking tertinggi yang didukung (`high`).
 - Desktop: sumber dan editor berdampingan. Mobile: tab baca/tulis dan bottom sheet feedback.
 - Timer memakai deadline absolut sehingga refresh tidak mengulang waktu. Waktu habis mengunci editor; user mengirim evaluasi secara manual. Jawaban kosong dapat dinilai dengan skor 0.
 - Draft, konfigurasi, dan hasil terakhir tersimpan lokal pada perangkat; tidak berisi credential. Hanya satu sesi terakhir disimpan.
@@ -35,13 +35,13 @@ lib/transly/config.ts        katalog model dan konfigurasi
 lib/transly/schema.ts        validasi dan normalisasi highlight
 lib/transly/output-schema.ts JSON schema untuk provider
 lib/transly/server.ts        enkripsi, error, throttling
-lib/transly/provider-adapters.ts konektor Gemini/Groq dan normalisasi respons
+lib/transly/provider-adapters.ts konektor Google AI Studio dan normalisasi respons
 lib/transly/sample.ts        alur contoh tanpa API
 build/sites-worker.ts        Worker entrypoint dan security headers
 tests/run.mjs                pengujian validasi/security/provider
 ```
 
-Tambah/ganti model dalam `lib/transly/config.ts`; UI dan endpoint membaca katalog yang sama. Model dengan `structured: false` menggunakan instruksi JSON dan validasi setelah respons. Identitas model Groq memakai namespace `groq:` di aplikasi dan diterjemahkan ke ID upstream oleh konektor. Endpoint provider tetap dan hanya dipanggil server-side. Model yang tidak tersedia menampilkan error; perpindahan provider memerlukan model cadangan yang ditentukan pengguna.
+Tambah/ganti model dalam `lib/transly/config.ts`; UI dan endpoint membaca katalog yang sama. Model dengan `structured: false` menggunakan instruksi JSON dan validasi setelah respons. Endpoint provider tetap dan hanya dipanggil server-side. Model yang tidak tersedia menampilkan error.
 
 ## Instalasi lokal
 
@@ -69,33 +69,30 @@ Buka `http://127.0.0.1:5173`. Preview portable memakai Node dan alias env lokal;
 | VAULT_ENCRYPTION_KEYS | Wajib untuk brankas | JSON versi secret acak, contoh bentuk `{"v1":"<secret acak minimal 32 karakter>"}`; simpan sebagai runtime secret |
 | VAULT_ACTIVE_VERSION | Wajib untuk brankas | Versi aktif dalam VAULT_ENCRYPTION_KEYS, awalnya `v1` |
 | GEMINI_API_KEY | Opsional | Shared server key Gemini untuk sesi tanpa akun; BYOK direkomendasikan |
-| GROQ_API_KEY | Opsional | Shared server key Groq untuk sesi tanpa akun; BYOK direkomendasikan |
 
 Jangan beri prefix `NEXT_PUBLIC_` pada credential. `.env*`, `.dev.vars*`, dependencies, build, dan runtime diabaikan Git; `.env.example` adalah contoh tanpa nilai asli.
 
 ## Custom API key dan keamanan
 
-Buka **Pengaturan AI → API key** pada situs utama dan masuk dengan ChatGPT. Brankas menyimpan hingga 50 key Gemini/Groq secara permanen dalam D1, terpisah per akun. Pilih provider, tempel key, beri nama, lalu **Simpan & uji akses**. Peran, urutan penggunaan, status aktif, dan kelompok kuota ada di Pengaturan lanjutan. Provider key hanya dapat diubah melalui API jika secret diganti; UI edit mempertahankan provider.
+Buka **Pengaturan AI → API key** pada situs utama dan masuk dengan ChatGPT. Brankas menyimpan hingga 50 key Google AI Studio secara permanen dalam D1, terpisah per akun. Tempel key, beri nama, lalu **Simpan & uji akses**. Peran, urutan penggunaan, status aktif, dan kelompok kuota ada di Pengaturan lanjutan.
 
-Key tersimpan AES-GCM dengan IV acak dan authenticated context yang mengikat akun serta record. Secret brankas terpisah dari SESSION_SECRET. Status hanya mengembalikan metadata dan empat karakter terakhir; secret tidak dikembalikan ke browser, localStorage, URL, log, atau bundle. Input dibersihkan setelah tersimpan/ditutup. Secret didekripsi di server, dikirim ke endpoint Google melalui header `x-goog-api-key` atau endpoint Groq melalui `Authorization: Bearer`. Endpoint tidak dapat dicustom oleh browser.
+Key tersimpan AES-GCM dengan IV acak dan authenticated context yang mengikat akun serta record. Secret brankas terpisah dari SESSION_SECRET. Status hanya mengembalikan metadata dan empat karakter terakhir; secret tidak dikembalikan ke browser, localStorage, URL, log, atau bundle. Input dibersihkan setelah tersimpan/ditutup. Secret didekripsi di server, dikirim ke endpoint Google melalui header `x-goog-api-key`. Endpoint tidak dapat dicustom oleh browser.
 
-**Model & penggunaan** memilih provider dan model untuk pembuat soal/penilai secara terpisah. Pemilihan key **Otomatis** mengikuti mode **Utama & cadangan** atau **Pembagian beban**. Jika key tertentu dipilih, hanya key tersebut dipakai untuk model utama. Penggantian provider membersihkan pilihan key yang tidak cocok. Pilihan model, key ID, dan provider cadangan disimpan lokal tanpa secret. Key yang dihapus dari brankas harus diganti pada pilihan penggunaan terkait.
+**Model & penggunaan** memilih model untuk pembuat soal/penilai secara terpisah. Pemilihan key **Otomatis** mengikuti mode **Utama & cadangan** atau **Pembagian beban**. Jika key tertentu dipilih, hanya key tersebut dipakai untuk model utama. Pilihan model dan key ID disimpan lokal tanpa secret. Key yang dihapus dari brankas harus diganti pada pilihan penggunaan terkait.
 
-Cadangan lintas provider bersifat opt-in per peran. Pengguna mengaktifkan **Izinkan beralih ke provider lain**, lalu menentukan model cadangan. Sistem dapat mengirim teks ke provider cadangan yang dipilih; provider/model aktual dilaporkan pada hasil dan riwayat. Tanpa pilihan tersebut, cadangan hanya berganti key untuk model/provider yang sama.
+Key invalid dikarantina; kegagalan izin berlaku pada pasangan key/model; 429 menghentikan kelompok kuota/model sesuai Retry-After atau RetryInfo. Gangguan provider membuka circuit breaker per model. Safety block dan parameter salah tidak memicu pergantian. Maksimal 1–3 percobaan dalam deadline 85 detik; setiap panggilan maksimal 30 detik. Timeout tidak menjamin pekerjaan atau tagihan upstream dibatalkan.
 
-Key invalid dikarantina; kegagalan izin berlaku pada pasangan key/model; 429 menghentikan kelompok kuota/model sesuai Retry-After atau RetryInfo. Gangguan provider membuka circuit breaker per provider/model, tanpa menghalangi provider lain. Safety block dan parameter salah tidak memicu pergantian. Maksimal 1–3 percobaan dibagi bersama antara provider utama/cadangan dalam deadline 85 detik; setiap panggilan maksimal 30 detik. Timeout tidak menjamin pekerjaan atau tagihan upstream dibatalkan.
+Kelompok kuota diisi pengguna dan tidak diverifikasi otomatis. Gunakan Project ID yang sama untuk key satu proyek Google Cloud. Jika belum diketahui, key masuk kelompok konservatif `unknown`. Pembatasan atomik D1 berlaku lintas Worker: 30 pekerjaan per akun/menit, 12 panggilan per kelompok/model/menit, 3 pekerjaan bersamaan per akun, 2 panggilan per kelompok/model, dan 1 per key. Kuota resmi tetap ditentukan upstream. Idempotency-Key terikat akun, input, model, dan pilihan key; hasil tervalidasi disimpan terenkripsi 10 menit untuk retry tanpa mengulang panggilan yang sudah sukses.
 
-Kelompok kuota diisi pengguna dan tidak diverifikasi otomatis. Gunakan Project ID yang sama untuk key satu proyek Gemini, atau nama organisasi yang sama untuk key satu organisasi Groq. Jika belum diketahui, key masuk kelompok konservatif `unknown` terpisah per provider. Pembatasan atomik D1 berlaku lintas Worker: 30 pekerjaan per akun/menit, 12 panggilan per kelompok/provider/model/menit, 3 pekerjaan bersamaan per akun, 2 panggilan per kelompok/model, dan 1 per key. Kuota resmi tetap ditentukan upstream. Idempotency-Key terikat akun, input, model, dan pilihan key/cadangan; hasil tervalidasi disimpan terenkripsi 10 menit untuk retry tanpa mengulang panggilan yang sudah sukses.
+**Uji akses** memakai metadata Gemini tanpa membuat konten. Status membedakan key tersimpan, akses teruji untuk model tertentu, waktu tunggu, izin bermasalah, dan key invalid. Keberhasilan metadata tidak menjamin izin inferensi atau kuota tersedia; keduanya diperiksa saat latihan. Mengganti secret menghapus hasil uji lama. Riwayat menyimpan 100 percobaan per akun (30 ditampilkan) tanpa teks latihan atau secret. Penghapusan key menghapus record/riwayat terkait; pencabutan key harus dilakukan di Google AI Studio.
 
-**Uji akses** memakai metadata Gemini atau daftar model Groq tanpa membuat konten. Status membedakan key tersimpan, akses teruji untuk model tertentu, waktu tunggu, izin bermasalah, dan key invalid. Keberhasilan metadata tidak menjamin izin inferensi atau kuota tersedia; keduanya diperiksa saat latihan. Mengganti secret menghapus hasil uji lama. Riwayat menyimpan 100 percobaan per akun (30 ditampilkan) tanpa teks latihan atau secret. Penghapusan key menghapus record/riwayat terkait; pencabutan key harus dilakukan di konsol provider.
-
-**Cadangan & pemulihan** menyediakan ekspor/impor AES-GCM dengan format v2 yang menyimpan identitas provider. Cadangan v1 tetap diterima sebagai Gemini. Kata sandi minimal 12 karakter diproses di browser menggunakan PBKDF2-SHA256 (600.000 iterasi, salt acak); kata sandi tidak dikirim ke server. Derived wrapping key dikirim melalui HTTPS hanya untuk operasi tersebut. File berisi ciphertext, IV, salt, dan versi format. Pemulihan menambah key tanpa menimpa yang ada dan aman diulang. Pilihan model/key perangkat tidak ikut dipulihkan. Simpan kata sandi terpisah; kata sandi cadangan yang hilang tidak dapat dipulihkan.
+**Cadangan & pemulihan** menyediakan ekspor/impor AES-GCM terenkripsi. Kata sandi minimal 12 karakter diproses di browser menggunakan PBKDF2-SHA256 (600.000 iterasi, salt acak); kata sandi tidak dikirim ke server. Derived wrapping key dikirim melalui HTTPS hanya untuk operasi tersebut. File berisi ciphertext, IV, salt, dan versi format. Pemulihan menambah key tanpa menimpa yang ada dan aman diulang. Pilihan model/key perangkat tidak ikut dipulihkan. Simpan kata sandi terpisah; kata sandi cadangan yang hilang tidak dapat dipulihkan.
 
 Rotasi secret brankas: tambahkan versi baru ke VAULT_ENCRYPTION_KEYS sambil mempertahankan versi lama, set VAULT_ACTIVE_VERSION, lalu deploy. Record otomatis dienkripsi ulang saat digunakan; operasi `{ "action": "rotate" }` pada `/api/credentials` mengenkripsi ulang seluruh key akun yang sedang masuk. Hapus versi lama hanya setelah seluruh akun, hasil cache yang belum kedaluwarsa, serta cadangan operasional diverifikasi. Jangan mengganti nilai suatu versi yang sudah dipakai.
 
-Teks sumber dan jawaban dikirim ke provider AI yang dipilih, termasuk provider cadangan jika diaktifkan. Draft dan evaluasi tetap disimpan lokal pada perangkat. Autentikasi ditangani dispatcher Sites melalui SIWC; API memeriksa identitas terverifikasi serta kepemilikan di setiap operasi. Keluar dari akun tidak menghapus brankas. Enkripsi tidak melindungi dari kompromi server yang memegang secret. Development portable menggunakan SQLite persisten di `.sites-runtime/vault.sqlite` dan simulasi login lokal; production menggunakan D1 dan tidak menyertakan simulasi login.
+Teks sumber dan jawaban dikirim ke Google AI Studio. Draft dan evaluasi tetap disimpan lokal pada perangkat. Autentikasi ditangani dispatcher Sites melalui SIWC; API memeriksa identitas terverifikasi serta kepemilikan di setiap operasi. Keluar dari akun tidak menghapus brankas. Enkripsi tidak melindungi dari kompromi server yang memegang secret. Development portable menggunakan SQLite persisten di `.sites-runtime/vault.sqlite` dan simulasi login lokal; production menggunakan D1 dan tidak menyertakan simulasi login.
 
-Penyimpanan key di perangkat: Pengguna dapat menyimpan API key Gemini dan Groq langsung di browser perangkat lokal (`localStorage`). Key tetap tersimpan saat me-refresh halaman, menutup tab, atau membuka kembali aplikasi tanpa perlu mengisi ulang. Sesi token terenkripsi disinkronkan secara otomatis dan dapat digunakan baik di situs utama maupun di GitHub Pages. Bagi pengguna situs utama dengan akun ChatGPT, brankas cloud D1 tetap dapat digunakan untuk sinkronisasi multi-key antar perangkat. Backend mengizinkan CORS untuk origin `https://darlayx1.github.io` dan menerima autentikasi Bearer token persisten.
+Penyimpanan key di perangkat: Pengguna dapat menyimpan API key Google AI Studio langsung di browser perangkat lokal (`localStorage`). Key tetap tersimpan saat me-refresh halaman, menutup tab, atau membuka kembali aplikasi tanpa perlu mengisi ulang. Sesi token terenkripsi disinkronkan secara otomatis dan dapat digunakan baik di situs utama maupun di GitHub Pages. Bagi pengguna situs utama dengan akun ChatGPT, brankas cloud D1 tetap dapat digunakan untuk sinkronisasi multi-key antar perangkat. Backend mengizinkan CORS untuk origin `https://darlayx1.github.io` dan menerima autentikasi Bearer token persisten.
 
 Endpoint membatasi ukuran request aktual termasuk chunked body, memvalidasi input, menolak cross-origin, membatasi tujuan provider, dan menyembunyikan error internal. Throttling sesi legacy tetap best-effort per isolate; brankas memakai reservasi atomik D1. Tidak ada shared provider key produksi bawaan. Kuota dan billing mengikuti akun provider pengguna; statistik aplikasi adalah jumlah percobaan, bukan laporan tagihan resmi.
 

@@ -38,10 +38,9 @@ export async function POST(request: Request) {
       }),
       z.object({
         gemini: z.string().trim().min(20).max(256).optional(),
-        groq: z.string().trim().min(20).max(256).optional(),
         generator: z.string().trim().min(20).max(256).optional(),
         evaluator: z.string().trim().min(20).max(256).optional(),
-      }).refine(d => Boolean(d.gemini || d.groq || d.generator || d.evaluator), 'Minimal satu API key harus diisi.'),
+      }).refine(d => Boolean(d.gemini || d.generator || d.evaluator), 'Minimal satu API key harus diisi.'),
     ]);
     const data = clientCredentialSchema.parse(body);
     const cookie = await credentialCookie(request, data);

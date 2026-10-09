@@ -8,7 +8,7 @@ import { Review } from '@/components/transly/review';
 import { api, ErrorBanner, Processing, Modal } from '@/components/transly/ui';
 import { challengeSchema, configSchema, defaultConfig, evaluationSchema, sessionSchema, type PracticeConfig, type PracticeSession } from '@/lib/transly/schema';
 import { sampleAnswer, sampleChallenge, sampleConfig, sampleEvaluation } from '@/lib/transly/sample';
-import { modelLabel } from '@/lib/transly/config';
+import { modelLabel, type Provider } from '@/lib/transly/config';
 import { roleReady } from '@/lib/transly/vault-types';
 import type { RoutingInfo } from '@/lib/transly/vault-types';
 
@@ -26,8 +26,8 @@ export default function Home() {
   const [settings, setSettings] = useState(false);
   const [busy, setBusy] = useState<'generate' | 'evaluate' | null>(null);
   const initialLocalKeys = typeof window !== 'undefined' ? loadDeviceKeys() : {};
-  const hasInitialKeys = Boolean(initialLocalKeys.gemini || initialLocalKeys.groq || initialLocalKeys.generator || initialLocalKeys.evaluator);
-  const initialProviders = (['gemini', 'groq'] as const).filter(p => p === 'gemini' ? Boolean(initialLocalKeys.gemini || initialLocalKeys.generator || initialLocalKeys.evaluator) : Boolean(initialLocalKeys.groq));
+  const hasInitialKeys = Boolean(initialLocalKeys.gemini || initialLocalKeys.generator || initialLocalKeys.evaluator);
+  const initialProviders: Provider[] = hasInitialKeys ? ['gemini'] : [];
   const [status, setStatus] = useState<KeyStatus>({
     generator: hasInitialKeys,
     evaluator: hasInitialKeys,
@@ -72,7 +72,7 @@ export default function Home() {
     const localKeys = loadDeviceKeys();
     api<KeyStatus>('/api/credentials', undefined, 'GET')
       .then(async (s) => {
-        if (!s.account && !s.custom && (localKeys.gemini || localKeys.groq || localKeys.generator || localKeys.evaluator)) {
+        if (!s.account && !s.custom && (localKeys.gemini || localKeys.generator || localKeys.evaluator)) {
           try {
             const synced = await api<KeyStatus>('/api/credentials', localKeys, 'POST');
             setStatus(synced);
