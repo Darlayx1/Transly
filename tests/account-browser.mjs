@@ -160,22 +160,33 @@ try {
   await panel(signup).getByLabel('Email', { exact: true }).fill('b@example.test');
   await panel(signup).getByLabel('Kata sandi', { exact: true }).fill('test-password-123');
   await panel(signup).getByRole('button', { name: 'Daftar', exact: true }).click();
-  await panel(signup).getByLabel('Kode dari email', { exact: true }).fill('123456');
-  await panel(signup).getByRole('button', { name: 'Konfirmasi', exact: true }).click();
+  await panel(signup).getByLabel('Kode dari email (jika tersedia)', { exact: true }).fill('123456');
+  await panel(signup).getByRole('button', { name: 'Konfirmasi kode', exact: true }).click();
   await panel(signup).getByRole('button', { name: 'Keluar', exact: true }).waitFor();
   assert.equal(signup.url(), originalUrl);
   console.log('PASS signup and email code confirmation without navigation');
   await panel(signup).getByRole('button', { name: 'Keluar', exact: true }).click();
   await panel(signup).getByRole('button', { name: 'Lupa kata sandi?', exact: true }).click();
   await panel(signup).getByLabel('Email', { exact: true }).fill('b@example.test');
-  await panel(signup).getByRole('button', { name: 'Kirim kode pemulihan', exact: true }).click();
-  await panel(signup).getByLabel('Kode dari email', { exact: true }).fill('654321');
+  await panel(signup).getByRole('button', { name: 'Kirim email pemulihan', exact: true }).click();
+  await panel(signup).getByLabel('Kode dari email (jika tersedia)', { exact: true }).fill('654321');
   await panel(signup).getByRole('button', { name: 'Verifikasi kode', exact: true }).click();
   await panel(signup).getByLabel('Kata sandi', { exact: true }).fill('test-new-password-123');
   await panel(signup).getByRole('button', { name: 'Simpan kata sandi', exact: true }).click();
   await panel(signup).getByText('Kata sandi berhasil diperbarui.', { exact: true }).waitFor();
   assert.equal(signup.url(), originalUrl);
   console.log('PASS password recovery and update without navigation');
+  const callback = await createPage();
+  const callbackSession = authSession('a@example.test');
+  const hash = new URLSearchParams({ access_token: callbackSession.access_token, refresh_token: callbackSession.refresh_token, expires_in: '3600', token_type: 'bearer', type: 'recovery' });
+  // Email links load a document, rather than merely updating an existing SPA hash.
+  await callback.goto(`${base}?email-callback=1#${hash}`);
+  await panel(callback).getByRole('heading', { name: 'Buat kata sandi baru', exact: true }).waitFor();
+  await panel(callback).getByLabel('Kata sandi', { exact: true }).fill('test-recovered-password-123');
+  await panel(callback).getByRole('button', { name: 'Simpan kata sandi', exact: true }).click();
+  await panel(callback).getByText('Kata sandi berhasil diperbarui.', { exact: true }).waitFor();
+  assert(!callback.url().includes('access_token'));
+  console.log('PASS default email recovery link returns to Transly and clears URL tokens');
   assert.deepEqual(errors, []);
 } finally {
   for (const context of contexts) await context.close();

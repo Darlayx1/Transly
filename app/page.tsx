@@ -47,6 +47,7 @@ export default function Home() {
   const current = useRef(session); current.current = session;
   const accountOwner = useRef(history.user?.id || 'guest');
   accountOwner.current = history.user?.id || 'guest';
+  useEffect(() => { if (history.recoveryRequired) setAccountOpen(true); }, [history.recoveryRequired]);
 
   const navigate = useCallback((next: View) => {
     setView(next);

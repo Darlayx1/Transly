@@ -19,6 +19,7 @@ export function AccountPanel({ open, onClose, history, onResume }: { open: boole
   const locked = useRef(false);
   const client = accountClient();
   const userId = history.user?.id;
+  const formMode: Mode = history.recoveryRequired ? 'password' : mode;
 
   useEffect(() => {
     if (!open) { setPassword(''); setCode(''); setError(''); }
@@ -40,34 +41,35 @@ export function AccountPanel({ open, onClose, history, onResume }: { open: boole
     if (!client || locked.current) return;
     locked.current = true; setBusy(true); setError(''); setNotice('');
     try {
-      if (mode === 'login') {
+      const redirectTo = window.location.origin + window.location.pathname;
+      if (formMode === 'login') {
         const { error } = await client.auth.signInWithPassword({ email: email.trim(), password });
         if (error) throw error;
         setPassword('');
-      } else if (mode === 'signup') {
-        const { data, error } = await client.auth.signUp({ email: email.trim(), password });
+      } else if (formMode === 'signup') {
+        const { data, error } = await client.auth.signUp({ email: email.trim(), password, options: { emailRedirectTo: redirectTo } });
         if (error) throw error;
         setPassword('');
-        if (!data.session) { setMode('confirm'); setNotice('Periksa email, lalu masukkan kode konfirmasi di sini.'); }
-      } else if (mode === 'confirm' || mode === 'recovery') {
-        const { error } = await client.auth.verifyOtp({ email: email.trim(), token: code.trim(), type: mode === 'confirm' ? 'signup' : 'recovery' });
+        if (!data.session) { setMode('confirm'); setNotice('Periksa email dan buka tautan konfirmasi untuk kembali ke Transly. Jika email berisi kode, masukkan kode di sini.'); }
+      } else if (formMode === 'confirm' || formMode === 'recovery') {
+        const { error } = await client.auth.verifyOtp({ email: email.trim(), token: code.trim(), type: formMode === 'confirm' ? 'signup' : 'recovery' });
         if (error) { setError('Kode tidak valid atau sudah kedaluwarsa. Periksa kode atau minta kode baru.'); return; }
         setCode('');
-        setMode(mode === 'recovery' ? 'password' : 'login');
-      } else if (mode === 'reset') {
-        const { error } = await client.auth.resetPasswordForEmail(email.trim());
+        setMode(formMode === 'recovery' ? 'password' : 'login');
+      } else if (formMode === 'reset') {
+        const { error } = await client.auth.resetPasswordForEmail(email.trim(), { redirectTo });
         if (error) throw error;
-        setMode('recovery'); setNotice('Jika email terdaftar, kode pemulihan akan dikirim. Masukkan kode di sini.');
+        setMode('recovery'); setNotice('Jika email terdaftar, tautan pemulihan akan dikirim. Buka tautan untuk kembali ke Transly dan membuat kata sandi baru. Jika email berisi kode, masukkan di sini.');
       } else {
         const { error } = await client.auth.updateUser({ password });
         if (error) throw error;
-        setPassword(''); setMode('login'); setNotice('Kata sandi berhasil diperbarui.');
+        history.finishRecovery(); setPassword(''); setMode('login'); setNotice('Kata sandi berhasil diperbarui.');
       }
     } catch (error) { setError(accountError(error as { message: string; code?: string })); }
     finally { locked.current = false; setBusy(false); }
   };
   const changeMode = (next: Mode) => { setMode(next); setError(''); setNotice(''); setPassword(''); setCode(''); };
-  const signedIn = Boolean(history.user) && mode !== 'password';
+  const signedIn = Boolean(history.user) && formMode !== 'password';
   return <Modal open={open} onClose={() => { if (!busy) onClose(); }} title="Akun & riwayat" className="account-modal"><div className="modal-body account-body">
     {error && <ErrorBanner message={error} onDismiss={() => setError('')}/>}
     {notice && <p role="status" className="account-notice">{notice}</p>}
@@ -81,21 +83,21 @@ export function AccountPanel({ open, onClose, history, onResume }: { open: boole
       }}><LogOut size={16}/>Keluar</button></div>
       <p className="muted">Latihan dan evaluasi tersimpan pada akun ini dan dapat dibuka dari perangkat lain.</p>
     </> : client ? <form className="account-form" onSubmit={submit}>
-      <h3>{({ login: 'Masuk ke Transly', signup: 'Buat akun', confirm: 'Konfirmasi email', reset: 'Pulihkan kata sandi', recovery: 'Masukkan kode pemulihan', password: 'Buat kata sandi baru' })[mode]}</h3>
-      {mode !== 'password' && <label>Email<input type="email" autoComplete="email" required value={email} disabled={busy || mode === 'confirm' || mode === 'recovery'} onChange={e => setEmail(e.target.value)}/></label>}
-      {['login', 'signup', 'password'].includes(mode) && <><label>Kata sandi<input type="password" aria-describedby={mode !== 'login' ? 'account-password-help' : undefined} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} minLength={mode === 'login' ? 1 : 12} required value={password} disabled={busy} onChange={e => setPassword(e.target.value)}/></label>{mode !== 'login' && <small id="account-password-help" className="muted">Minimal 12 karakter.</small>}</>}
-      {['confirm', 'recovery'].includes(mode) && <label>Kode dari email<input type="text" inputMode="numeric" autoComplete="one-time-code" required value={code} disabled={busy} onChange={e => setCode(e.target.value)}/></label>}
-      <button className="primary-button" disabled={busy}>{busy ? 'Memproses…' : ({ login: 'Masuk', signup: 'Daftar', confirm: 'Konfirmasi', reset: 'Kirim kode pemulihan', recovery: 'Verifikasi kode', password: 'Simpan kata sandi' })[mode]}</button>
+      <h3>{({ login: 'Masuk ke Transly', signup: 'Buat akun', confirm: 'Konfirmasi email', reset: 'Pulihkan kata sandi', recovery: 'Periksa email pemulihan', password: 'Buat kata sandi baru' })[formMode]}</h3>
+      {formMode !== 'password' && <label>Email<input type="email" autoComplete="email" required value={email} disabled={busy || formMode === 'confirm' || formMode === 'recovery'} onChange={e => setEmail(e.target.value)}/></label>}
+      {['login', 'signup', 'password'].includes(formMode) && <><label>Kata sandi<input type="password" aria-describedby={formMode !== 'login' ? 'account-password-help' : undefined} autoComplete={formMode === 'login' ? 'current-password' : 'new-password'} minLength={formMode === 'login' ? 1 : 12} required value={password} disabled={busy} onChange={e => setPassword(e.target.value)}/></label>{formMode !== 'login' && <small id="account-password-help" className="muted">Minimal 12 karakter.</small>}</>}
+      {['confirm', 'recovery'].includes(formMode) && <label>Kode dari email (jika tersedia)<input type="text" inputMode="numeric" autoComplete="one-time-code" required value={code} disabled={busy} onChange={e => setCode(e.target.value)}/></label>}
+      <button className="primary-button" disabled={busy}>{busy ? 'Memproses…' : ({ login: 'Masuk', signup: 'Daftar', confirm: 'Konfirmasi kode', reset: 'Kirim email pemulihan', recovery: 'Verifikasi kode', password: 'Simpan kata sandi' })[formMode]}</button>
       <div className="account-links">
-        {mode === 'login' ? <><button type="button" className="text-button" disabled={busy} onClick={() => changeMode('signup')}>Buat akun</button><button type="button" className="text-button" disabled={busy} onClick={() => changeMode('reset')}>Lupa kata sandi?</button></> : <button type="button" className="text-button" disabled={busy} onClick={() => changeMode('login')}>Kembali ke masuk</button>}
-        {mode === 'confirm' && <button type="button" className="text-button" disabled={busy} onClick={async () => {
+        {formMode === 'login' ? <><button type="button" className="text-button" disabled={busy} onClick={() => changeMode('signup')}>Buat akun</button><button type="button" className="text-button" disabled={busy} onClick={() => changeMode('reset')}>Lupa kata sandi?</button></> : formMode !== 'password' && <button type="button" className="text-button" disabled={busy} onClick={() => changeMode('login')}>Kembali ke masuk</button>}
+        {formMode === 'confirm' && <button type="button" className="text-button" disabled={busy} onClick={async () => {
           if (locked.current) return;
           locked.current = true; setBusy(true); setError('');
-          try { const { error } = await client.auth.resend({ type: 'signup', email: email.trim() }); if (error) throw error; setNotice('Kode baru telah diminta. Periksa email.'); }
+          try { const { error } = await client.auth.resend({ type: 'signup', email: email.trim(), options: { emailRedirectTo: window.location.origin + window.location.pathname } }); if (error) throw error; setNotice('Email konfirmasi telah diminta kembali. Periksa email.'); }
           catch (error) { setError(accountError(error as { message: string })); }
           finally { locked.current = false; setBusy(false); }
-        }}>Kirim ulang kode</button>}
-        {mode === 'recovery' && <button type="button" className="text-button" disabled={busy} onClick={() => changeMode('reset')}>Minta kode baru</button>}
+        }}>Kirim ulang email</button>}
+        {formMode === 'recovery' && <button type="button" className="text-button" disabled={busy} onClick={() => changeMode('reset')}>Minta email baru</button>}
       </div>
     </form> : <div className="account-notice"><h3>Login belum tersedia</h3><p>Penyimpanan akun sedang disiapkan. Latihan dan draft tetap dapat disimpan pada perangkat ini.</p></div>}
     <section className="account-history"><div className="account-toolbar"><h3><History size={18}/>Riwayat latihan</h3>{history.user && <button className="secondary-button" disabled={history.syncing || busy} onClick={() => void history.sync()}><RefreshCw size={15}/>{history.syncing ? 'Menyinkronkan…' : 'Sinkronkan'}</button>}</div>

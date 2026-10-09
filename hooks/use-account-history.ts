@@ -12,6 +12,7 @@ export function useAccountHistory() {
   const [storageFailed, setStorageFailed] = useState(false);
   const [message, setMessage] = useState('');
   const [syncing, setSyncing] = useState(false);
+  const [recoveryRequired, setRecoveryRequired] = useState(false);
   const [revision, setRevision] = useState(0);
   const state = useRef(cache);
   const owner = useRef('');
@@ -85,6 +86,7 @@ export function useAccountHistory() {
       if (!mounted.current) return;
       const nextOwner = nextUser?.id || 'guest';
       setUser(nextUser);
+      if (!nextUser) setRecoveryRequired(false);
       if (owner.current === nextOwner) return;
       generation.current++;
       owner.current = nextOwner;
@@ -107,9 +109,9 @@ export function useAccountHistory() {
     };
     if (!client) selectOwner(null);
     else {
-      subscription = client.auth.onAuthStateChange((_event, session) => {
+      subscription = client.auth.onAuthStateChange((event, session) => {
         // Do not invoke auth/database methods inside the SDK's auth callback lock.
-        queueMicrotask(() => selectOwner(session?.user || null));
+        queueMicrotask(() => { if (mounted.current && event === 'PASSWORD_RECOVERY') setRecoveryRequired(true); selectOwner(session?.user || null); });
       }).data.subscription;
       void client.auth.getSession().then(({ data, error }) => {
         if (!mounted.current || owner.current) return;
@@ -151,6 +153,7 @@ export function useAccountHistory() {
 
   return {
     user, ready, storageFailed, message, syncing, setMessage, setSession, selectSession, importGuest,
+    recoveryRequired, finishRecovery: () => setRecoveryRequired(false),
     session: cache.entries.find(e => e.session.id === cache.activeId)?.session || null,
     entries: cache.entries,
     sync: () => sync(true),

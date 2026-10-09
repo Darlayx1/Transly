@@ -7,7 +7,7 @@ let client: SupabaseClient | null = null;
 
 export function isPublicAccountKey(value: string): boolean {
   if (value.startsWith('sb_publishable_')) return true;
-  try { return JSON.parse(atob(value.split('.')[1])).role === 'anon'; }
+  try { return JSON.parse(atob(value.split('.')[1].replaceAll('-', '+').replaceAll('_', '/'))).role === 'anon'; }
   catch { return false; }
 }
 
@@ -16,7 +16,7 @@ export function accountClient(): SupabaseClient | null {
   if (!client) {
     try {
       client = createClient(url, key, {
-        auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
+        auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
         global: { fetch: (input, init) => fetch(input, { ...init, signal: init?.signal || AbortSignal.timeout(15000) }) },
       });
     } catch { return null; }
