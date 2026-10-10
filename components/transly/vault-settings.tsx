@@ -9,6 +9,9 @@ import type { useAccountHistory } from '@/hooks/use-account-history';
 import { api, ErrorBanner, Modal } from './ui';
 import { AccountPanel } from './account-panel';
 
+import { StorageLayer } from '@/lib/transly/storage-layer';
+import { getStorageOwner } from '@/lib/transly/owner';
+
 const tabs = [
   { id: 'account', label: 'Akun', icon: UserRound },
   { id: 'keys', label: 'API key', icon: KeyRound },
@@ -35,12 +38,12 @@ export function VaultSettings({ open, onClose, config, onConfig, status, onStatu
   const [formStart, setFormStart] = useState(JSON.stringify(emptyForm));
   const content = useRef<HTMLDivElement>(null);
   const lock = useRef(false);
-  const owner = history.user?.id || 'guest';
+  const owner = getStorageOwner(history.user?.id);
   const currentOwner = useRef(owner);
   useLayoutEffect(() => { currentOwner.current = owner; }, [owner]);
   const dirty = showForm && JSON.stringify(form) !== formStart;
   const keys = status.keys || [];
-  const cloud = Boolean(status.account) && !status.device;
+  const cloud = Boolean(status.account || history.user);
 
   useEffect(() => {
     if (history.recoveryRequired) setTab('account');
@@ -74,14 +77,15 @@ export function VaultSettings({ open, onClose, config, onConfig, status, onStatu
     catch (e) { if (currentOwner.current === startedOwner) setError((e as Error).message); }
     finally { lock.current = false; setBusy(''); }
   }
-  function saveLocal(vault: ReturnType<typeof readDeviceVault>) {
-    writeDeviceVault(owner, vault); if (currentOwner.current === owner) onStatus(deviceVaultStatus(vault));
+  function saveLocal(vault: ReturnType<typeof StorageLayer.readGuestVault>) {
+    StorageLayer.writeGuestVault(vault);
+    if (currentOwner.current === 'guest') onStatus(deviceVaultStatus(vault));
   }
   async function saveKey() {
     await operate('save', async () => {
       if (cloud) onStatus(await api<KeyStatus>('/api/credentials', { action: editing ? 'update' : 'add', ...form, provider: 'gemini', project: keys.find(key => key.id === editing)?.project || '', enabled: keys.find(key => key.id === editing)?.enabled ?? true, ...(editing ? { id: editing } : {}), secret: form.secret.trim() || undefined }));
       else {
-        const vault = readDeviceVault(owner);
+        const vault = StorageLayer.readGuestVault();
         const existing = vault.keys.find(key => key.id === editing);
         if (editing && !existing) throw new Error('Key sudah tidak tersedia. Muat ulang daftar.');
         const fresh = newDeviceKey(form.name.trim(), form.secret.trim() || existing?.secret || '', form.role, form.priority);
@@ -97,7 +101,7 @@ export function VaultSettings({ open, onClose, config, onConfig, status, onStatu
     await operate(action + ':' + key.id, async () => {
       if (cloud) onStatus(await api<KeyStatus>('/api/credentials', action === 'test' ? { action: 'test', id: key.id, model: config.generator } : action === 'remove' ? { action: 'remove', id: key.id } : { action: 'update', ...key, enabled: !key.enabled }));
       else {
-        const vault = readDeviceVault(owner);
+        const vault = StorageLayer.readGuestVault();
         const item = vault.keys.find(entry => entry.id === key.id);
         if (!item) throw new Error('Key sudah tidak tersedia.');
         if (action === 'remove') vault.keys = vault.keys.filter(entry => entry.id !== key.id);
@@ -122,7 +126,7 @@ export function VaultSettings({ open, onClose, config, onConfig, status, onStatu
   async function saveRouting(mode: 'priority' | 'balanced', maxAttempts: number) {
     await operate('routing', async () => {
       if (cloud) onStatus(await api<KeyStatus>('/api/credentials', { action: 'settings', mode, maxAttempts }));
-      else { const vault = readDeviceVault(owner); vault.settings = { mode, maxAttempts }; saveLocal(vault); }
+      else { const vault = StorageLayer.readGuestVault(); vault.settings = { mode, maxAttempts }; saveLocal(vault); }
     }, 'Pengaturan penggunaan disimpan.');
   }
   const tabInfo = tabs.find(item => item.id === tab)!;

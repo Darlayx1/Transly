@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { History, LogOut, RefreshCw, UserRound } from 'lucide-react';
 import { accountClient, accountError } from '@/lib/transly/account';
+import { StorageLayer } from '@/lib/transly/storage-layer';
 import type { useAccountHistory } from '@/hooks/use-account-history';
 import { ErrorBanner } from './ui';
 
@@ -13,6 +14,10 @@ export function AccountPanel({ open, section, onClose, history, onResume, onBusy
   const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
+  const [showImport, setShowImport] = useState(false);
+  const [importHistoryChoice, setImportHistoryChoice] = useState(true);
+  const [importConfigChoice, setImportConfigChoice] = useState(true);
+  const [importKeysChoice, setImportKeysChoice] = useState(true);
   useEffect(() => { onBusyChange(busy); return () => onBusyChange(false); }, [busy, onBusyChange]);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -107,7 +112,44 @@ export function AccountPanel({ open, section, onClose, history, onResume, onBusy
         <div><b>{entry.session.challenge.title}</b><span>{new Date(entry.session.startedAt).toLocaleString('id-ID')} · {entry.session.sample ? 'Contoh · ' : ''}{entry.session.result ? `Nilai ${entry.session.result.overallScore}` : 'Draft'}{history.user && entry.dirty ? ' · Belum tersinkron' : ''}</span></div>
         <button className="secondary-button" disabled={busy} onClick={() => { onResume(entry.session.id); onClose(); }}>Buka</button>
       </li>)}</ol>}
-      {history.user && <button className="text-button" disabled={history.syncing || busy} onClick={() => { if (window.confirm('Salin riwayat tamu perangkat ini ke akun yang sedang masuk?')) history.importGuest(); }}>Salin riwayat tamu ke akun</button>}
+      {history.user && <div className="account-import-section">
+        {!showImport ? (
+          <button type="button" className="text-button" disabled={history.syncing || busy} onClick={() => setShowImport(true)}>
+            Impor data lokal ke akun
+          </button>
+        ) : (
+          <div className="account-import-card">
+            <h4>Pilih data lokal yang akan disalin ke akun:</h4>
+            <label className="checkbox-item">
+              <input type="checkbox" checked={importHistoryChoice} onChange={e => setImportHistoryChoice(e.target.checked)}/>
+              <span>Riwayat latihan ({typeof window !== 'undefined' ? StorageLayer.readHistory('guest').entries.length : 0} sesi tamu)</span>
+            </label>
+            <label className="checkbox-item">
+              <input type="checkbox" checked={importConfigChoice} onChange={e => setImportConfigChoice(e.target.checked)}/>
+              <span>Pengaturan latihan & pilihan model</span>
+            </label>
+            <label className="checkbox-item">
+              <input type="checkbox" checked={importKeysChoice} onChange={e => setImportKeysChoice(e.target.checked)}/>
+              <span>API key lokal ({typeof window !== 'undefined' ? StorageLayer.readGuestVault().keys.length : 0} key pada perangkat)</span>
+            </label>
+            <p className="muted small">Data asli pada ruang tamu tetap tersimpan dan tidak dihapus.</p>
+            <div className="account-import-actions">
+              <button type="button" className="secondary-button" disabled={busy} onClick={() => setShowImport(false)}>Batal</button>
+              <button type="button" className="primary-button" disabled={busy || (!importHistoryChoice && !importConfigChoice && !importKeysChoice)} onClick={async () => {
+                setBusy(true);
+                try {
+                  await history.importGuest({ history: importHistoryChoice, config: importConfigChoice, keys: importKeysChoice });
+                  setShowImport(false);
+                } catch (e) {
+                  setError((e as Error).message);
+                } finally {
+                  setBusy(false);
+                }
+              }}>Salin ke akun</button>
+            </div>
+          </div>
+        )}
+      </div>}
       {history.storageFailed && <ErrorBanner message="Penyimpanan perangkat tidak tersedia atau penuh. Jangan tutup halaman sebelum riwayat berhasil disinkronkan."/>}
     </section>}
     {section === 'history' && signedIn && <section className="account-history"><h3>Riwayat masuk akun</h3>{logins.length ? <ol className="account-login-list">{logins.map(event => <li key={event.id}>{new Date(event.created_at).toLocaleString('id-ID')}</li>)}</ol> : <p className="muted small">Belum ada aktivitas masuk yang tercatat.</p>}</section>}

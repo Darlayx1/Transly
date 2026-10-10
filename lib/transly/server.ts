@@ -64,13 +64,16 @@ export type DeviceCredentialInput = {
 export async function readCredentials(request: Request): Promise<Credentials | null> {
   const origin = request.headers.get('origin');
   if (origin && origin !== new URL(request.url).origin && !isPagesRequest(request)) return null;
+  const credHeader = request.headers.get('x-transly-credentials');
   const authHeader = request.headers.get('authorization');
   const bearerToken = authHeader?.match(/^Bearer ([A-Za-z0-9_.-]+)$/)?.[1];
   const cookieToken = request.headers.get('cookie')?.split(';').map(v => v.trim()).find(v => v.startsWith(cookieName + '='))?.slice(cookieName.length + 1);
-  const value = bearerToken || cookieToken;
+  const value = credHeader || (bearerToken && bearerToken.split('.').length === 2 ? bearerToken : null) || cookieToken;
   if (!value || value.length > 3000) return null;
   try {
-    const [iv, encrypted] = value.split('.');
+    const parts = value.split('.');
+    if (parts.length !== 2) return null;
+    const [iv, encrypted] = parts;
     const bytes = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(iv), additionalData: encoder.encode(cookieName) }, await encryptionKey(), unb64(encrypted));
     const c = credentialSchema.parse(JSON.parse(decoder.decode(bytes)));
     return c.expires > Date.now() ? c : null;

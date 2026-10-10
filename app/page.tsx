@@ -16,9 +16,12 @@ import { readDeviceVault, writeDeviceVault, deviceVaultStatus, deviceCandidates,
 import { pagesMode, setSessionToken } from '@/lib/transly/transport';
 import { useAccountHistory } from '@/hooks/use-account-history';
 
+import { StorageLayer } from '@/lib/transly/storage-layer';
+import { getStorageOwner, isAccountOwner, type StorageOwner } from '@/lib/transly/owner';
+import { setCredentialToken } from '@/lib/transly/transport';
+
 type View = 'setup' | 'practice' | 'review';
 type Confirmation = 'replace' | 'sample-replace' | 'submit';
-const CONFIG = 'transly.config.v1';
 
 export default function Home() {
   const [config, setConfig] = useState<PracticeConfig>(defaultConfig);
@@ -35,8 +38,8 @@ export default function Home() {
   const lastAction = useRef<'generate' | 'evaluate' | null>(null);
   const locked = useRef(false);
   const current = useRef(session); current.current = session;
-  const accountOwner = useRef(history.user?.id || 'guest');
-  accountOwner.current = history.user?.id || 'guest';
+  const accountOwner = useRef<StorageOwner>(getStorageOwner(history.user?.id));
+  accountOwner.current = getStorageOwner(history.user?.id);
   useEffect(() => { if (history.recoveryRequired) setSettings(true); }, [history.recoveryRequired]);
 
   const navigate = useCallback((next: View) => {
@@ -69,18 +72,37 @@ export default function Home() {
 
   useEffect(() => {
     if (!ready) return;
-    const owner = history.user?.id || 'guest';
+    const owner = getStorageOwner(history.user?.id);
+    accountOwner.current = owner;
     let active = true;
-    setSessionToken('');
+    setCredentialToken('');
     try {
-      const stored = localStorage.getItem(CONFIG + ':' + owner) || (owner === 'guest' ? localStorage.getItem(CONFIG) : null);
-      const parsed = configSchema.safeParse(JSON.parse(stored || 'null'));
-      setConfig(parsed.success ? parsed.data : defaultConfig);
-      setStatus(deviceVaultStatus(readDeviceVault(owner)));
-    } catch (e) { setStatus({ device: true, generator: false, evaluator: false, custom: false, server: false }); setError((e as Error).message); }
-    if (!pagesMode) void api<KeyStatus>('/api/credentials', undefined, 'GET').then(next => { if (active && next.account) setStatus(next); }).catch(() => {});
+      const loaded = StorageLayer.readConfig(owner);
+      setConfig(loaded);
+      if (history.user) {
+        void api<KeyStatus>('/api/credentials', undefined, 'GET').then(next => {
+          if (active && next.account) {
+            setStatus(next);
+            StorageLayer.writeAccountKeysMeta(owner as `account:${string}`, next);
+          }
+        }).catch(() => {
+          if (active) {
+            const cached = StorageLayer.readAccountKeysMeta(owner as `account:${string}`) as KeyStatus | null;
+            if (cached) setStatus(cached);
+            else setStatus({ generator: false, evaluator: false, custom: false, server: false, account: { email: history.user?.email || '' } });
+          }
+        });
+      } else {
+        const guestVault = StorageLayer.readGuestVault();
+        setStatus(deviceVaultStatus(guestVault));
+      }
+    } catch (e) {
+      setStatus({ device: true, generator: false, evaluator: false, custom: false, server: false });
+      setError((e as Error).message);
+    }
     return () => { active = false; };
   }, [ready, history.user?.id]);
+
   useEffect(() => {
     const protect = (e: BeforeUnloadEvent) => { if (busy) e.preventDefault(); };
     window.addEventListener('beforeunload', protect);
@@ -89,7 +111,11 @@ export default function Home() {
 
   const changeConfig = (next: PracticeConfig) => {
     setConfig(next);
-    try { localStorage.setItem(CONFIG + ':' + accountOwner.current, JSON.stringify(next)); } catch { setConfigStorageFailed(true); }
+    try {
+      StorageLayer.writeConfig(accountOwner.current, next);
+    } catch {
+      setConfigStorageFailed(true);
+    }
     if (session && !session.result && view === 'practice' && !session.sample) {
       setSession({ ...session, config: { ...session.config, evaluator: next.evaluator, evaluatorKeyId: next.evaluatorKeyId, evaluatorFallback: next.evaluatorFallback } });
     }
@@ -113,36 +139,45 @@ export default function Home() {
     navigate('practice');
   }
   async function requestAI<T>(url: string, practiceConfig: PracticeConfig, body: Record<string, unknown> = {}): Promise<T> {
-    if (!status.device) return api<T>(url, { ...practiceConfig, ...body });
     const owner = accountOwner.current;
     const role = url === '/api/evaluate' ? 'evaluator' : 'generator';
-    const vault = readDeviceVault(owner);
+
+    // Account user: backend uses server vault directly with authenticated token
+    if (status.account || isAccountOwner(owner)) {
+      if (accountOwner.current !== owner) throw new Error('Akun berubah. Silakan mulai kembali.');
+      const result = await api<T>(url, { ...practiceConfig, ...body });
+      if (accountOwner.current !== owner) throw new Error('Akun berubah. Silakan mulai kembali.');
+      return result;
+    }
+
+    // Guest user: ephemeral key from local guest vault
+    const vault = StorageLayer.readGuestVault();
     const candidates = deviceCandidates(vault, practiceConfig, role).slice(0, vault.settings.maxAttempts);
     if (!candidates.length) throw new Error('Pilih API key aktif untuk peran ini di Pengaturan AI.');
     let failure: unknown;
     const requestId = crypto.randomUUID();
     for (const [index, key] of candidates.entries()) {
       const startedAt = Date.now();
-      if (accountOwner.current !== owner) { setSessionToken(''); throw new Error('Akun berubah. Silakan mulai kembali.'); }
+      if (accountOwner.current !== owner) { setCredentialToken(''); throw new Error('Akun berubah. Silakan mulai kembali.'); }
       try {
         await api('/api/credentials', { generator: key.secret, evaluator: key.secret });
-        if (accountOwner.current !== owner) { setSessionToken(''); throw new Error('Akun berubah. Silakan mulai kembali.'); }
+        if (accountOwner.current !== owner) { setCredentialToken(''); throw new Error('Akun berubah. Silakan mulai kembali.'); }
         const result = await api<T>(url, { ...deviceRequestConfig(practiceConfig), ...body });
-        if (accountOwner.current !== owner) { setSessionToken(''); throw new Error('Akun berubah. Silakan mulai kembali.'); }
-        const latest = readDeviceVault(owner);
+        if (accountOwner.current !== owner) { setCredentialToken(''); throw new Error('Akun berubah. Silakan mulai kembali.'); }
+        const latest = StorageLayer.readGuestVault();
         latest.events = [...(latest.events || []), { keyName: key.name, model: practiceConfig[role], role, outcome: 'SUCCESS', duration: Date.now() - startedAt, attempt: index + 1, requestId, createdAt: Date.now() }].slice(-100);
         const used = latest.keys.find(item => item.id === key.id);
         if (used) { used.lastUsed = Date.now(); used.successes++; }
-        try { writeDeviceVault(owner, latest); setStatus(deviceVaultStatus(latest)); } catch { setError('Hasil AI berhasil diterima, tetapi statistik penggunaan belum tersimpan.'); }
+        try { StorageLayer.writeGuestVault(latest); setStatus(deviceVaultStatus(latest)); } catch { setError('Hasil AI berhasil diterima, tetapi statistik penggunaan belum tersimpan.'); }
         return result;
       } catch (e) {
         failure = e;
         if (accountOwner.current !== owner) throw e;
-        const latest = readDeviceVault(owner);
+        const latest = StorageLayer.readGuestVault();
         latest.events = [...(latest.events || []), { keyName: key.name, model: practiceConfig[role], role, outcome: (e as Error & { code?: string }).code || 'NETWORK_ERROR', duration: Date.now() - startedAt, attempt: index + 1, requestId, createdAt: Date.now() }].slice(-100);
         const used = latest.keys.find(item => item.id === key.id);
         if (used) { used.lastUsed = Date.now(); used.failures++; }
-        try { writeDeviceVault(owner, latest); setStatus(deviceVaultStatus(latest)); } catch { /* Original request error remains actionable. */ }
+        try { StorageLayer.writeGuestVault(latest); setStatus(deviceVaultStatus(latest)); } catch { /* Original request error remains actionable. */ }
         // Retry only another key for verified access/quota failures; never repeat a key.
         if (!['INVALID_KEY', 'KEY_PERMISSION_DENIED', 'QUOTA_EXCEEDED', 'RATE_LIMIT'].includes((e as Error & { code?: string }).code || '')) throw e;
       }

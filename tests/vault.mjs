@@ -8,7 +8,7 @@ import ts from 'typescript';
 const dir = path.resolve('.sites-runtime/vault-tests');
 await mkdir(dir, { recursive: true });
 const runtime = globalThis.__vaultTestEnv = { VAULT_ENCRYPTION_KEYS: JSON.stringify({ v1: 'test-only-encryption-secret-12345678901234567890' }), VAULT_ACTIVE_VERSION: 'v1' };
-for (const name of ['config', 'provider-adapters', 'server', 'vault-crypto', 'vault', 'vault-backup', 'backup-material']) {
+for (const name of ['config', 'provider-adapters', 'server', 'vault-crypto', 'owner', 'account-auth', 'vault', 'vault-backup', 'backup-material']) {
   const source = (await readFile(`lib/transly/${name}.ts`, 'utf8'))
     .replace("import { env } from 'cloudflare:workers';", 'const env = globalThis.__vaultTestEnv;')
     .replace(/from '(\.\/[^']+)'/g, "from '$1.js'");

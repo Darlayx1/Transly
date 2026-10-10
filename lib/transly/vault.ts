@@ -5,6 +5,8 @@ import { providerAdapters } from './provider-adapters';
 import { AppError, generateJson, hasServerKey, isPagesRequest, readCredentials } from './server';
 import { activeVersion, digest, seal, unseal } from './vault-crypto';
 
+import { getVerifiedAccount, decodeJwtPayload, extractLoginToken } from './account-auth';
+
 export type Role = 'generator' | 'evaluator';
 type KeyRow = { provider: Provider; tested_model: string | null; id: string; owner: string; name: string; project: string; role: string; priority: number; enabled: number; ciphertext: string; fingerprint: string; suffix: string; invalid: number; tested_at: number | null; last_used: number | null; successes: number; failures: number; created_at: number };
 type Health = { scope: string; model: string; until: number; code: string; failures: number };
@@ -14,16 +16,31 @@ const quotaGroup = (key: KeyRow) => key.project;
 const providerScope = (provider: Provider) => `provider:${provider}`;
 const keyContext = (owner: string, id: string) => `transly:key:${owner}:${id}`;
 export function account(request: Request) {
+  const token = extractLoginToken(request);
+  if (token) {
+    const payload = decodeJwtPayload(token);
+    if (payload?.sub && (!payload.exp || payload.exp * 1000 > Date.now())) {
+      return { id: `account:${payload.sub}`, email: payload.email || '', isAccount: true };
+    }
+  }
   // Sites dispatch authenticates and supplies these headers; Pages never supplies identity.
   if (isPagesRequest(request)) return null;
   const id = request.headers.get('oai-authenticated-user-id'), email = request.headers.get('oai-authenticated-user-email');
-  return id && email ? { id, email } : null;
+  return id && email ? { id, email, isAccount: false } : null;
 }
-export function requireOwner(request: Request) {
-  const user = account(request);
-  if (!user) throw new AppError('SIGN_IN_REQUIRED', 'Masuk dengan ChatGPT untuk membuka brankas API key.', 401);
+export async function requireOwner(request: Request) {
+  const verified = await getVerifiedAccount(request);
+  let user: { id: string; email: string } | null = null;
+  if (verified) {
+    user = { id: verified.owner, email: verified.email };
+  } else if (!isPagesRequest(request)) {
+    const id = request.headers.get('oai-authenticated-user-id');
+    const email = request.headers.get('oai-authenticated-user-email');
+    if (id && email) user = { id, email };
+  }
+  if (!user) throw new AppError('SIGN_IN_REQUIRED', 'Masuk untuk membuka brankas API key.', 401);
   const origin = request.headers.get('origin');
-  if ((origin && origin !== new URL(request.url).origin) || request.headers.get('sec-fetch-site') === 'cross-site') throw new AppError('FORBIDDEN', 'Permintaan tidak diizinkan.', 403);
+  if ((origin && origin !== new URL(request.url).origin && !isPagesRequest(request)) || (request.headers.get('sec-fetch-site') === 'cross-site' && !isPagesRequest(request))) throw new AppError('FORBIDDEN', 'Permintaan tidak diizinkan.', 403);
   return user.id;
 }
 export function vaultDb() {
@@ -39,16 +56,24 @@ export async function getSettings(owner: string) {
   return await statement('SELECT mode, max_attempts AS maxAttempts FROM vault_settings WHERE owner = ?', owner).first<{ mode: 'priority' | 'balanced'; maxAttempts: number }>() || { mode: 'priority' as const, maxAttempts: 3 };
 }
 export async function vaultStatus(request: Request) {
-  const user = account(request);
+  const verified = await getVerifiedAccount(request);
+  let user: { id: string; email: string } | null = null;
+  if (verified) {
+    user = { id: verified.owner, email: verified.email };
+  } else if (!isPagesRequest(request)) {
+    const id = request.headers.get('oai-authenticated-user-id');
+    const email = request.headers.get('oai-authenticated-user-email');
+    if (id && email) user = { id, email };
+  }
   if (!user) {
     const legacy = await readCredentials(request);
     const legacyProviders: Provider[] = [];
     if (legacy && (legacy.gemini || legacy.generator || legacy.evaluator)) {
       legacyProviders.push('gemini');
     }
-    return { generator: Boolean(legacy?.generator || legacy?.gemini) || hasServerKey(), evaluator: Boolean(legacy?.evaluator || legacy?.gemini) || hasServerKey(), custom: Boolean(legacy), server: hasServerKey(), serverProviders: hasServerKey() ? (['gemini'] as const) : ([] as const), legacyProviders, account: null, keys: [], health: [], events: [], settings: { mode: 'priority', maxAttempts: 3 } };
+    return { generator: Boolean(legacy?.generator || legacy?.gemini) || hasServerKey(), evaluator: Boolean(legacy?.evaluator || legacy?.gemini) || hasServerKey(), custom: Boolean(legacy), server: hasServerKey(), serverProviders: hasServerKey() ? (['gemini'] as const) : ([] as const), legacyProviders, account: null, keys: [], health: [], events: [], settings: { mode: 'priority' as const, maxAttempts: 3 } };
   }
-  requireOwner(request);
+  await requireOwner(request);
   const owner = user.id;
   if (new URL(request.url).searchParams.get('progress') === '1') {
     const events = await statement("SELECT e.key_name AS keyName, e.model, e.role, e.outcome, e.attempt, e.created_at AS createdAt FROM vault_events e INNER JOIN vault_jobs j ON j.owner = e.owner AND j.id = e.request_id WHERE e.owner = ? AND j.status = 'running' AND j.expires > ? ORDER BY e.created_at DESC, e.rowid DESC LIMIT 3", owner, Date.now()).all();
@@ -197,7 +222,7 @@ async function clean(owner: string) {
   ]);
 }
 export async function runWithVault<T>(request: Request, role: Role, model: string, prompt: string, schema: unknown, validate: (raw: unknown) => T, selection: { keyId?: string; fallbackModel?: string } = {}): Promise<T & { routing?: unknown }> {
-  const owner = requireOwner(request), deadline = Date.now() + 85000;
+  const owner = await requireOwner(request), deadline = Date.now() + 85000;
   if (!models.some(item => item.id === model) || (selection.fallbackModel && (!models.some(item => item.id === selection.fallbackModel) || selection.fallbackModel === model))) throw new AppError('INVALID_INPUT', 'Pilih model yang tersedia.');
   let activeModel = model;
   const suppliedId = request.headers.get('idempotency-key');

@@ -2,7 +2,7 @@
 import { LoaderCircle, TriangleAlert, X } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
-import { apiOrigin, pagesMode, getSessionToken, setSessionToken } from '@/lib/transly/transport';
+import { apiOrigin, pagesMode, getSessionToken, setSessionToken, getAuthToken, getCredentialToken, setCredentialToken } from '@/lib/transly/transport';
 
 export function Modal({ open, onClose, title, children, className = '' }: { open: boolean; onClose: () => void; title: string; children: ReactNode; className?: string }) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -33,14 +33,25 @@ export async function api<T>(url: string, body?: unknown, method = 'POST'): Prom
     if (!pendingRequests.has(operation)) pendingRequests.set(operation, { id: crypto.randomUUID(), expires: Date.now() + 600000 });
     headers['Idempotency-Key'] = pendingRequests.get(operation)!.id;
   }
-  if (getSessionToken()) headers.Authorization = `Bearer ${getSessionToken()}`;
+  const authJwt = getAuthToken();
+  const credToken = getCredentialToken();
+  if (authJwt) {
+    headers['X-Transly-Auth'] = `Bearer ${authJwt}`;
+    headers['Authorization'] = `Bearer ${authJwt}`;
+  }
+  if (credToken) {
+    headers['X-Transly-Credentials'] = credToken;
+    if (!authJwt) {
+      headers['Authorization'] = `Bearer ${credToken}`;
+    }
+  }
   try { response = await fetch(apiOrigin + url, { method, credentials: pagesMode ? 'omit' : 'same-origin', headers, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(100000) }); }
   catch { throw new Error('Koneksi terputus atau permintaan terlalu lama. Jawaban tersimpan; silakan coba kembali.'); }
   let data;
   try { data = await response.json(); } catch { throw new Error('Server belum dapat merespons. Silakan coba kembali.'); }
   if (!response.ok) { const detail = (data as { error?: { message?: string; code?: string } }).error; throw Object.assign(new Error(detail?.message || 'Terjadi kendala. Silakan coba kembali.'), { code: detail?.code }); }
   if (operation) pendingRequests.delete(operation);
-  if (url === '/api/credentials' && method === 'POST') { const token = (data as { sessionToken?: unknown }).sessionToken; if (typeof token === 'string') setSessionToken(token); }
-  if (url === '/api/credentials' && method === 'DELETE') setSessionToken('');
+  if (url === '/api/credentials' && method === 'POST') { const token = (data as { sessionToken?: unknown }).sessionToken; if (typeof token === 'string') setCredentialToken(token); }
+  if (url === '/api/credentials' && method === 'DELETE') setCredentialToken('');
   return data as T;
 }
