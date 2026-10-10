@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { clientCredentialSchema } from '@/lib/transly/credential-schema';
-import { readBody, readCredentials, credentialCookie, clearCookie, errorResponse, json, isPagesRequest, AppError } from '@/lib/transly/server';
+import { readBody, readCredentials, credentialCookie, clearCookie, errorResponse, json, AppError } from '@/lib/transly/server';
 import { vaultStatus, requireOwner, addKey, updateKey, removeKey, saveSettings, testKey, rotateVault, rateLimit, getKeys } from '@/lib/transly/vault';
 import { unseal } from '@/lib/transly/vault-crypto';
 export async function GET(request: Request) {
@@ -66,7 +66,8 @@ export async function POST(request: Request) {
     const data = clientCredentialSchema.parse(body);
     const cookie = await credentialCookie(request, data);
     const sessionToken = cookie.split(';')[0].slice('transly_credentials='.length);
-    return json({ saved: true, sessionToken, ...(await vaultStatus(request)) }, 200, { 'Set-Cookie': cookie });
+    // Device credentials are usable independently of account vault availability.
+    return json({ saved: true, sessionToken, generator: Boolean(data.generator || data.gemini), evaluator: Boolean(data.evaluator || data.gemini), custom: true, server: false, device: true, account: null }, 200, { 'Set-Cookie': cookie });
   } catch (e) { return errorResponse(e); }
 }
 export async function DELETE(request: Request) {

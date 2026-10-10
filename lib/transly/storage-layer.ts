@@ -1,4 +1,4 @@
-import { configSchema, defaultConfig, sessionSchema, type PracticeConfig, type PracticeSession } from './schema';
+import { configSchema, defaultConfig, sessionSchema, type PracticeConfig } from './schema';
 import { emptyHistory, identifySession, type HistoryCache, type HistoryEntry } from './history';
 import { emptyDeviceVault, newDeviceKey, type DeviceVault, type DeviceVaultKey } from './device-vault';
 import { loadDeviceKeys } from './client-keys';
@@ -57,7 +57,7 @@ export class StorageLayer {
     if (!storage) return;
     try {
       storage.setItem(STORAGE_PREFIX.CONFIG + owner, JSON.stringify(config));
-    } catch (e) {
+    } catch {
       throw new Error('Penyimpanan pengaturan gagal. Periksa memori perangkat.');
     }
   }
@@ -193,7 +193,7 @@ export class StorageLayer {
 
   static writeGuestVault(vault: DeviceVault): void {
     const storage = this.getStorage();
-    if (!storage) return;
+    if (!storage) throw new Error('Penyimpanan API key pada perangkat tidak tersedia.');
     try {
       storage.setItem(STORAGE_PREFIX.GUEST_KEYS, JSON.stringify(vault));
     } catch {

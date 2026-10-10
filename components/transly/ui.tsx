@@ -24,7 +24,7 @@ export function Processing({ evaluation }: { evaluation: boolean }) {
   return <div className="processing" role="status" aria-live="polite"><div className="processing-symbol"><LoaderCircle className="spin" size={30}/></div><h2>{evaluation ? 'Membaca makna di balik kata.' : 'Menyiapkan tantangan untukmu.'}</h2><p>{evaluation ? 'AI sedang menelaah ketepatan makna, tata bahasa, dan kealamian terjemahan.' : 'AI sedang menyusun teks sesuai level, topik, dan gaya pilihanmu.'}</p><div className="processing-steps"><span>01 <b>{evaluation ? 'Memahami konteks' : 'Menyesuaikan level'}</b></span><span>02 <b>{evaluation ? 'Meninjau terjemahan' : 'Menyusun teks'}</b></span><span>03 <b>{evaluation ? 'Merangkai feedback' : 'Menyiapkan latihan'}</b></span></div><p className="muted small">Proses biasanya memerlukan beberapa detik. Jawabanmu tetap tersimpan.</p></div>;
 }
 const pendingRequests = new Map<string, { id: string; expires: number }>();
-export async function api<T>(url: string, body?: unknown, method = 'POST'): Promise<T> {
+export async function api<T>(url: string, body?: unknown, method = 'POST', credentialMode: 'account' | 'device' = 'account'): Promise<T> {
   let response;
   const headers: Record<string, string> = body === undefined ? {} : { 'Content-Type': 'application/json' };
   const operation = method === 'POST' && ['/api/generate', '/api/evaluate'].includes(url) ? `${url}:${JSON.stringify(body)}` : '';
@@ -33,7 +33,7 @@ export async function api<T>(url: string, body?: unknown, method = 'POST'): Prom
     if (!pendingRequests.has(operation)) pendingRequests.set(operation, { id: crypto.randomUUID(), expires: Date.now() + 600000 });
     headers['Idempotency-Key'] = pendingRequests.get(operation)!.id;
   }
-  const authJwt = getAuthToken();
+  const authJwt = credentialMode === 'device' ? '' : getAuthToken();
   const credToken = getCredentialToken();
   if (authJwt) {
     headers['X-Transly-Auth'] = `Bearer ${authJwt}`;

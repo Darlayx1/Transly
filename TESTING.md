@@ -1,5 +1,12 @@
 # Pengujian Transly
 
+## Regresi brankas perangkat — 11 Oktober 2026
+
+- `npm test` mencakup `tests/vault-device-routes.mjs`: pertukaran credential tanpa database brankas, penggunaan key lokal untuk generate/evaluate saat login, dan penolakan token perangkat invalid serta perpindahan identitas melalui sesi kedaluwarsa.
+- `npm run test:vault-device:browser` menguji antarmuka nyata dengan layanan akun/provider simulasi: penyimpanan tamu dan akun setelah refresh, isolasi pemilik, brankas server terverifikasi, pemulihan form ketika sesi brankas ditolak, serta penyimpanan perangkat yang tidak tersedia.
+- Tes browser memerlukan Playwright. Bila dipasang di luar dependency proyek, arahkan `TRANSly_PLAYWRIGHT_MODULE` ke URL file modulnya; `TRANSLY_CHROMIUM_PATH` dapat menunjuk executable Chrome/Edge yang terpasang.
+- Pemeriksaan ini tidak memakai API key pengguna atau membuktikan konfigurasi autentikasi deployment. Mode perangkat dipakai bila verifikasi/akses brankas server gagal. Cache key lokal akun tetap dibersihkan saat logout sesuai aturan proyek; key tamu tetap tersimpan.
+
 Tanggal: 8 Oktober 2026 (Asia/Makassar).
 
 ## Pemeriksaan yang telah lulus

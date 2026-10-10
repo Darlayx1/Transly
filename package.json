@@ -13,7 +13,8 @@
     "start": "node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js dev --config dist/server/wrangler.json --local --persist-to .wrangler/state --ip 127.0.0.1 --inspector-port 0",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate",
-    "test": "node tests/run.mjs && node tests/vault.mjs && node tests/account-history.mjs && node tests/account-isolation.mjs",
+    "test": "node tests/run.mjs && node tests/vault.mjs && node tests/account-history.mjs && node tests/account-isolation.mjs && node tests/vault-device-routes.mjs",
+    "test:vault-device:browser": "node tests/vault-device-browser.mjs",
     "check": "tsc --noEmit"
   },
   "dependencies": {

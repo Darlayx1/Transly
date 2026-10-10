@@ -33,7 +33,7 @@ export async function requireOwner(request: Request) {
   let user: { id: string; email: string } | null = null;
   if (verified) {
     user = { id: verified.owner, email: verified.email };
-  } else if (!isPagesRequest(request)) {
+  } else if (!extractLoginToken(request) && !isPagesRequest(request)) {
     const id = request.headers.get('oai-authenticated-user-id');
     const email = request.headers.get('oai-authenticated-user-email');
     if (id && email) user = { id, email };
@@ -60,7 +60,7 @@ export async function vaultStatus(request: Request) {
   let user: { id: string; email: string } | null = null;
   if (verified) {
     user = { id: verified.owner, email: verified.email };
-  } else if (!isPagesRequest(request)) {
+  } else if (!extractLoginToken(request) && !isPagesRequest(request)) {
     const id = request.headers.get('oai-authenticated-user-id');
     const email = request.headers.get('oai-authenticated-user-email');
     if (id && email) user = { id, email };

@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { configSchema, normalizeEvaluation } from '@/lib/transly/schema';
 import { modelProvider } from '@/lib/transly/config';
 import { evaluationJsonSchema } from '@/lib/transly/output-schema';
-import { readBody, resolveKey, throttle, generateJson, AppError, errorResponse, json } from '@/lib/transly/server';
+import { readBody, readCredentials, resolveKey, throttle, generateJson, AppError, errorResponse, json } from '@/lib/transly/server';
 import { account, runWithVault } from '@/lib/transly/vault';
 import { getVerifiedAccount } from '@/lib/transly/account-auth';
 const inputSchema = z.object({ config: configSchema, sourceText: z.string().min(30).max(12000), userTranslation: z.string().max(16000) });
@@ -17,7 +17,8 @@ export async function POST(request: Request) {
       result.overallScore = input.userTranslation.trim() ? Math.round(s.accuracy * .35 + s.completeness * .20 + s.naturalness * .15 + s.grammar * .10 + s.wordChoice * .10 + s.style * .10) : 0;
       return result;
     };
-    const user = (await getVerifiedAccount(request)) || account(request);
+    const device = request.headers.has('x-transly-credentials') && await readCredentials(request);
+    const user = device ? null : (await getVerifiedAccount(request)) || account(request);
     if (user) return json(await runWithVault(request, 'evaluator', input.config.evaluator, prompt, evaluationJsonSchema, validate, { keyId: input.config.evaluatorKeyId, fallbackModel: input.config.evaluatorFallback }));
     if (input.config.evaluatorKeyId || input.config.evaluatorFallback) throw new AppError('SIGN_IN_REQUIRED', 'Masuk untuk menggunakan key dan cadangan dari brankas.', 401);
     const key = await resolveKey(request, 'evaluator', modelProvider(input.config.evaluator)); await throttle(key);

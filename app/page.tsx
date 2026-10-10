@@ -6,18 +6,17 @@ import { Settings, type KeyStatus } from '@/components/transly/settings';
 import { Practice } from '@/components/transly/practice';
 import { Review } from '@/components/transly/review';
 import { api, ErrorBanner, Processing, Modal } from '@/components/transly/ui';
-import { challengeSchema, configSchema, defaultConfig, evaluationSchema, type PracticeConfig } from '@/lib/transly/schema';
+import { challengeSchema, defaultConfig, evaluationSchema, type PracticeConfig } from '@/lib/transly/schema';
 import { sampleAnswer, sampleChallenge, sampleConfig, sampleEvaluation } from '@/lib/transly/sample';
 import { modelLabel } from '@/lib/transly/config';
 import { roleReady } from '@/lib/transly/vault-types';
 import type { RoutingInfo } from '@/lib/transly/vault-types';
 
 import { readDeviceVault, writeDeviceVault, deviceVaultStatus, deviceCandidates, deviceRequestConfig } from '@/lib/transly/device-vault';
-import { pagesMode, setSessionToken } from '@/lib/transly/transport';
 import { useAccountHistory } from '@/hooks/use-account-history';
 
 import { StorageLayer } from '@/lib/transly/storage-layer';
-import { getStorageOwner, isAccountOwner, type StorageOwner } from '@/lib/transly/owner';
+import { getStorageOwner, type StorageOwner } from '@/lib/transly/owner';
 import { setCredentialToken } from '@/lib/transly/transport';
 
 type View = 'setup' | 'practice' | 'review';
@@ -26,6 +25,7 @@ type Confirmation = 'replace' | 'sample-replace' | 'submit';
 export default function Home() {
   const [config, setConfig] = useState<PracticeConfig>(defaultConfig);
   const history = useAccountHistory();
+  const userId = history.user?.id;
   const { session, setSession, ready, storageFailed } = history;
   const [view, setView] = useState<View>('setup');
   const [settings, setSettings] = useState(false);
@@ -72,24 +72,38 @@ export default function Home() {
 
   useEffect(() => {
     if (!ready) return;
-    const owner = getStorageOwner(history.user?.id);
+    const owner = getStorageOwner(userId);
     accountOwner.current = owner;
     let active = true;
     setCredentialToken('');
     try {
       const loaded = StorageLayer.readConfig(owner);
       setConfig(loaded);
-      if (history.user) {
+      if (userId) {
+        const localStatus = () => deviceVaultStatus(readDeviceVault(owner));
+        setStatus({ ...localStatus(), loading: true });
         void api<KeyStatus>('/api/credentials', undefined, 'GET').then(next => {
-          if (active && next.account) {
-            setStatus(next);
-            StorageLayer.writeAccountKeysMeta(owner as `account:${string}`, next);
+          if (!active) return;
+          if (!next.account) {
+            setStatus({ ...localStatus(), notice: 'Akun sudah masuk, tetapi brankas server belum dapat memverifikasi sesi. API key dapat disimpan pada perangkat ini.' });
+            return;
           }
+          const local = localStatus();
+          if (local.keys?.length && !next.keys?.length) {
+            setStatus({ ...local, notice: 'API key akun ini tetap digunakan dari penyimpanan perangkat. Brankas server belum memiliki key.' });
+            return;
+          }
+          setCredentialToken('');
+          setStatus(next);
+          StorageLayer.writeAccountKeysMeta(owner as `account:${string}`, next);
         }).catch(() => {
           if (active) {
-            const cached = StorageLayer.readAccountKeysMeta(owner as `account:${string}`) as KeyStatus | null;
-            if (cached) setStatus(cached);
-            else setStatus({ generator: false, evaluator: false, custom: false, server: false, account: { email: history.user?.email || '' } });
+            try {
+              setStatus({ ...localStatus(), notice: 'Brankas server belum dapat diakses. API key dapat disimpan pada perangkat ini.' });
+            } catch (e) {
+              setStatus({ device: true, generator: false, evaluator: false, custom: false, server: false });
+              setError((e as Error).message);
+            }
           }
         });
       } else {
@@ -101,7 +115,7 @@ export default function Home() {
       setError((e as Error).message);
     }
     return () => { active = false; };
-  }, [ready, history.user?.id]);
+  }, [ready, userId]);
 
   useEffect(() => {
     const protect = (e: BeforeUnloadEvent) => { if (busy) e.preventDefault(); };
@@ -143,15 +157,18 @@ export default function Home() {
     const role = url === '/api/evaluate' ? 'evaluator' : 'generator';
 
     // Account user: backend uses server vault directly with authenticated token
-    if (status.account || isAccountOwner(owner)) {
+    if (status.loading) throw new Error('Status brankas sedang diperiksa. Tunggu sebentar.');
+    if (status.account && !status.device) {
       if (accountOwner.current !== owner) throw new Error('Akun berubah. Silakan mulai kembali.');
       const result = await api<T>(url, { ...practiceConfig, ...body });
       if (accountOwner.current !== owner) throw new Error('Akun berubah. Silakan mulai kembali.');
       return result;
     }
 
-    // Guest user: ephemeral key from local guest vault
-    const vault = StorageLayer.readGuestVault();
+    // Device keys stay scoped to the active guest or account owner.
+    const readLocal = () => owner === 'guest' ? StorageLayer.readGuestVault() : readDeviceVault(owner);
+    const writeLocal = (vault: ReturnType<typeof readLocal>) => owner === 'guest' ? StorageLayer.writeGuestVault(vault) : writeDeviceVault(owner, vault);
+    const vault = readLocal();
     const candidates = deviceCandidates(vault, practiceConfig, role).slice(0, vault.settings.maxAttempts);
     if (!candidates.length) throw new Error('Pilih API key aktif untuk peran ini di Pengaturan AI.');
     let failure: unknown;
@@ -160,24 +177,24 @@ export default function Home() {
       const startedAt = Date.now();
       if (accountOwner.current !== owner) { setCredentialToken(''); throw new Error('Akun berubah. Silakan mulai kembali.'); }
       try {
-        await api('/api/credentials', { generator: key.secret, evaluator: key.secret });
+        await api('/api/credentials', { generator: key.secret, evaluator: key.secret }, 'POST', 'device');
         if (accountOwner.current !== owner) { setCredentialToken(''); throw new Error('Akun berubah. Silakan mulai kembali.'); }
-        const result = await api<T>(url, { ...deviceRequestConfig(practiceConfig), ...body });
+        const result = await api<T>(url, { ...deviceRequestConfig(practiceConfig), ...body }, 'POST', 'device');
         if (accountOwner.current !== owner) { setCredentialToken(''); throw new Error('Akun berubah. Silakan mulai kembali.'); }
-        const latest = StorageLayer.readGuestVault();
+        const latest = readLocal();
         latest.events = [...(latest.events || []), { keyName: key.name, model: practiceConfig[role], role, outcome: 'SUCCESS', duration: Date.now() - startedAt, attempt: index + 1, requestId, createdAt: Date.now() }].slice(-100);
         const used = latest.keys.find(item => item.id === key.id);
         if (used) { used.lastUsed = Date.now(); used.successes++; }
-        try { StorageLayer.writeGuestVault(latest); setStatus(deviceVaultStatus(latest)); } catch { setError('Hasil AI berhasil diterima, tetapi statistik penggunaan belum tersimpan.'); }
+        try { writeLocal(latest); setStatus(deviceVaultStatus(latest)); } catch { setError('Hasil AI berhasil diterima, tetapi statistik penggunaan belum tersimpan.'); }
         return result;
       } catch (e) {
         failure = e;
         if (accountOwner.current !== owner) throw e;
-        const latest = StorageLayer.readGuestVault();
+        const latest = readLocal();
         latest.events = [...(latest.events || []), { keyName: key.name, model: practiceConfig[role], role, outcome: (e as Error & { code?: string }).code || 'NETWORK_ERROR', duration: Date.now() - startedAt, attempt: index + 1, requestId, createdAt: Date.now() }].slice(-100);
         const used = latest.keys.find(item => item.id === key.id);
         if (used) { used.lastUsed = Date.now(); used.failures++; }
-        try { StorageLayer.writeGuestVault(latest); setStatus(deviceVaultStatus(latest)); } catch { /* Original request error remains actionable. */ }
+        try { writeLocal(latest); setStatus(deviceVaultStatus(latest)); } catch { /* Original request error remains actionable. */ }
         // Retry only another key for verified access/quota failures; never repeat a key.
         if (!['INVALID_KEY', 'KEY_PERMISSION_DENIED', 'QUOTA_EXCEEDED', 'RATE_LIMIT'].includes((e as Error & { code?: string }).code || '')) throw e;
       }

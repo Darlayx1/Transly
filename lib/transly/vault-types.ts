@@ -12,6 +12,8 @@ export type KeyStatus = {
   generator: boolean; evaluator: boolean; custom: boolean; server: boolean;
   serverProviders?: Provider[]; legacyProviders?: Provider[];
   device?: boolean;
+  loading?: boolean;
+  notice?: string;
   account?: { email: string } | null; legacyMigrationAvailable?: boolean;
   keys?: VaultKey[]; health?: VaultHealth[]; events?: VaultEvent[]; running?: string[];
   settings?: { mode: 'priority' | 'balanced'; maxAttempts: number };
