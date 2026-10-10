@@ -11,6 +11,7 @@ export type VaultEvent = { keyName: string; model: string; provider?: Provider; 
 export type KeyStatus = {
   generator: boolean; evaluator: boolean; custom: boolean; server: boolean;
   serverProviders?: Provider[]; legacyProviders?: Provider[];
+  device?: boolean;
   account?: { email: string } | null; legacyMigrationAvailable?: boolean;
   keys?: VaultKey[]; health?: VaultHealth[]; events?: VaultEvent[]; running?: string[];
   settings?: { mode: 'priority' | 'balanced'; maxAttempts: number };
@@ -27,13 +28,13 @@ export function keyAvailability(key: VaultKey, status: KeyStatus, model: string,
 }
 export function hasUsableKey(status: KeyStatus, role: 'generator' | 'evaluator', model: string, keyId?: string) {
   const provider = modelProvider(model);
-  if (!status.account) return !keyId && ((status.serverProviders?.includes(provider) ?? (provider === 'gemini' && status.server)) || (status.legacyProviders?.includes(provider) ?? (provider === 'gemini' && status.custom)));
+  if (!status.account && !status.device) return !keyId && ((status.serverProviders?.includes(provider) ?? (provider === 'gemini' && status.server)) || (status.legacyProviders?.includes(provider) ?? (provider === 'gemini' && status.custom)));
   return (status.keys || []).some(key => (!keyId || key.id === keyId) && (key.role === role || key.role === 'both') && ['tested', 'untested'].includes(keyAvailability(key, status, model)));
 }
 export function roleReady(status: KeyStatus, config: PracticeConfig, role: 'generator' | 'evaluator') {
   const keyId = role === 'generator' ? config.generatorKeyId : config.evaluatorKeyId;
   const fallback = role === 'generator' ? config.generatorFallback : config.evaluatorFallback;
-  if (!status.account && (keyId || fallback)) return false;
+  if (!status.account && !status.device && (keyId || fallback)) return false;
   if (keyId && !(status.keys || []).some(key => key.id === keyId && key.provider === modelProvider(config[role]) && ['both', role].includes(key.role))) return false;
   return hasUsableKey(status, role, config[role], keyId) || Boolean(fallback && hasUsableKey(status, role, fallback));
 }

@@ -3,16 +3,17 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { History, LogOut, RefreshCw, UserRound } from 'lucide-react';
 import { accountClient, accountError } from '@/lib/transly/account';
 import type { useAccountHistory } from '@/hooks/use-account-history';
-import { ErrorBanner, Modal } from './ui';
+import { ErrorBanner } from './ui';
 
 type AccountHistory = ReturnType<typeof useAccountHistory>;
 type Mode = 'login' | 'signup' | 'confirm' | 'reset' | 'recovery' | 'password';
-export function AccountPanel({ open, onClose, history, onResume }: { open: boolean; onClose: () => void; history: AccountHistory; onResume: (id: string) => void }) {
+export function AccountPanel({ open, section, onClose, history, onResume, onBusyChange }: { open: boolean; section: 'account' | 'history'; onClose: () => void; history: AccountHistory; onResume: (id: string) => void; onBusyChange: (busy: boolean) => void }) {
   const [mode, setMode] = useState<Mode>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
+  useEffect(() => { onBusyChange(busy); return () => onBusyChange(false); }, [busy, onBusyChange]);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [logins, setLogins] = useState<{ id: string; created_at: string }[]>([]);
@@ -26,7 +27,7 @@ export function AccountPanel({ open, onClose, history, onResume }: { open: boole
   }, [open]);
   useEffect(() => {
     setLogins([]);
-    if (!open || !userId || !client) return;
+    if (!open || section !== 'history' || !userId || !client) return;
     let active = true;
     void client.from('login_events').select('id,created_at').eq('user_id', userId).order('created_at', { ascending: false }).limit(20).then(({ data, error }) => {
       if (!active) return;
@@ -34,7 +35,7 @@ export function AccountPanel({ open, onClose, history, onResume }: { open: boole
       else setLogins(data || []);
     });
     return () => { active = false; };
-  }, [open, userId, client, history.syncing]);
+  }, [open, section, userId, client, history.syncing]);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -70,10 +71,10 @@ export function AccountPanel({ open, onClose, history, onResume }: { open: boole
   };
   const changeMode = (next: Mode) => { setMode(next); setError(''); setNotice(''); setPassword(''); setCode(''); };
   const signedIn = Boolean(history.user) && formMode !== 'password';
-  return <Modal open={open} onClose={() => { if (!busy) onClose(); }} title="Akun & riwayat" className="account-modal"><div className="modal-body account-body">
+  return <div className="account-body">
     {error && <ErrorBanner message={error} onDismiss={() => setError('')}/>}
     {notice && <p role="status" className="account-notice">{notice}</p>}
-    {signedIn ? <>
+    {section === 'account' && (signedIn ? <>
       <div className="account-summary"><span><UserRound size={20}/>{history.user?.email}</span><button className="text-button" disabled={busy || history.syncing} onClick={async () => {
         if (!client || locked.current) return;
         locked.current = true; setBusy(true);
@@ -99,8 +100,8 @@ export function AccountPanel({ open, onClose, history, onResume }: { open: boole
         }}>Kirim ulang email</button>}
         {formMode === 'recovery' && <button type="button" className="text-button" disabled={busy} onClick={() => changeMode('reset')}>Minta email baru</button>}
       </div>
-    </form> : <div className="account-notice"><h3>Login belum tersedia</h3><p>Penyimpanan akun sedang disiapkan. Latihan dan draft tetap dapat disimpan pada perangkat ini.</p></div>}
-    <section className="account-history"><div className="account-toolbar"><h3><History size={18}/>Riwayat latihan</h3>{history.user && <button className="secondary-button" disabled={history.syncing || busy} onClick={() => void history.sync()}><RefreshCw size={15}/>{history.syncing ? 'Menyinkronkan…' : 'Sinkronkan'}</button>}</div>
+    </form> : <div className="account-notice"><h3>Login belum tersedia</h3><p>Penyimpanan akun sedang disiapkan. Latihan dan draft tetap dapat disimpan pada perangkat ini.</p></div>)}
+    {section === 'history' && <section className="account-history"><div className="account-toolbar"><h3><History size={18}/>Riwayat latihan</h3>{history.user && <button className="secondary-button" disabled={history.syncing || busy} onClick={() => void history.sync()}><RefreshCw size={15}/>{history.syncing ? 'Menyinkronkan…' : 'Sinkronkan'}</button>}</div>
       <p className="muted small" role="status">{history.user ? history.message || 'Draft disimpan otomatis.' : 'Riwayat ini hanya tersimpan pada perangkat ini. Masuk untuk menyimpan ke akun.'}</p>
       {!history.entries.length ? <p className="account-empty">Belum ada latihan tersimpan.</p> : <ol className="account-session-list">{[...history.entries].sort((a, b) => b.session.startedAt - a.session.startedAt).map(entry => <li key={entry.session.id}>
         <div><b>{entry.session.challenge.title}</b><span>{new Date(entry.session.startedAt).toLocaleString('id-ID')} · {entry.session.sample ? 'Contoh · ' : ''}{entry.session.result ? `Nilai ${entry.session.result.overallScore}` : 'Draft'}{history.user && entry.dirty ? ' · Belum tersinkron' : ''}</span></div>
@@ -108,7 +109,7 @@ export function AccountPanel({ open, onClose, history, onResume }: { open: boole
       </li>)}</ol>}
       {history.user && <button className="text-button" disabled={history.syncing || busy} onClick={() => { if (window.confirm('Salin riwayat tamu perangkat ini ke akun yang sedang masuk?')) history.importGuest(); }}>Salin riwayat tamu ke akun</button>}
       {history.storageFailed && <ErrorBanner message="Penyimpanan perangkat tidak tersedia atau penuh. Jangan tutup halaman sebelum riwayat berhasil disinkronkan."/>}
-    </section>
-    {signedIn && <section className="account-history"><h3>Riwayat masuk akun</h3>{logins.length ? <ol className="account-login-list">{logins.map(event => <li key={event.id}>{new Date(event.created_at).toLocaleString('id-ID')}</li>)}</ol> : <p className="muted small">Belum ada aktivitas masuk yang tercatat.</p>}</section>}
-  </div></Modal>;
+    </section>}
+    {section === 'history' && signedIn && <section className="account-history"><h3>Riwayat masuk akun</h3>{logins.length ? <ol className="account-login-list">{logins.map(event => <li key={event.id}>{new Date(event.created_at).toLocaleString('id-ID')}</li>)}</ol> : <p className="muted small">Belum ada aktivitas masuk yang tercatat.</p>}</section>}
+  </div>;
 }

@@ -7,7 +7,7 @@ import ts from 'typescript';
 // Compile the exact source into an ignored folder. Only the platform env import
 // is adapted; provider responses are mocked and never impersonate live AI.
 const dir = path.resolve('.sites-runtime/tests'); await mkdir(dir, { recursive: true });
-for (const name of ['config', 'provider-adapters', 'vault-types', 'schema', 'server', 'sample', 'credential-schema', 'client-keys']) {
+for (const name of ['config', 'provider-adapters', 'vault-types', 'schema', 'server', 'sample', 'credential-schema', 'client-keys', 'device-vault']) {
   const source = (await readFile(`lib/transly/${name}.ts`, 'utf8')).replace(/from '(\.\/[^']+)'/g, "from '$1.js'").replace("import { env } from 'cloudflare:workers';", 'const env = {};');
   await writeFile(path.join(dir, `${name}.js`), ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText);
 }
@@ -250,3 +250,38 @@ await test('device payload works with legacy and current credential contracts', 
 });
 
 console.log(`${passed} tests passed. Live Google AI Studio calls require real user keys.`);
+
+await test('device vault isolates accounts, migrates legacy guest keys and respects role selections', async () => {
+  const vault = await import(pathToFileURL(path.join(dir, 'device-vault.js')));
+  const stored = new Map();
+  globalThis.window = {};
+  globalThis.localStorage = { getItem: key => stored.get(key) || null, setItem: (key, value) => stored.set(key, value), removeItem: key => stored.delete(key) };
+  stored.set('transly.device_keys.v1', JSON.stringify({ generator: 'legacy-device-key-1234567890', evaluator: 'legacy-device-key-1234567890' }));
+  const guest = vault.readDeviceVault('guest');
+  assert.equal(guest.keys.length, 1);
+  assert.equal(guest.keys[0].role, 'both');
+  assert.equal(vault.readDeviceVault('account-a').keys.length, 0);
+  const first = vault.newDeviceKey('First', 'first-device-key-1234567890', 'generator', 2);
+  const second = vault.newDeviceKey('Second', 'second-device-key-1234567890', 'both', 1);
+  const disabled = { ...vault.newDeviceKey('Disabled', 'disabled-device-key-1234567890'), enabled: false };
+  vault.writeDeviceVault('account-a', { ...vault.emptyDeviceVault(), keys: [first, second, disabled] });
+  assert.equal(vault.readDeviceVault('account-b').keys.length, 0);
+  const state = vault.readDeviceVault('account-a');
+  assert.deepEqual(vault.deviceCandidates(state, defaultConfig, 'generator').map(key => key.id), [second.id, first.id]);
+  assert.deepEqual(vault.deviceCandidates(state, defaultConfig, 'evaluator').map(key => key.id), [second.id]);
+  assert.equal(vault.deviceCandidates(state, { ...defaultConfig, generatorKeyId: disabled.id }, 'generator').length, 0);
+  const status = vault.deviceVaultStatus(state);
+  assert(!JSON.stringify(status).includes(first.secret));
+  assert(status.generator && status.evaluator && status.device);
+  const selected = { ...defaultConfig, generatorKeyId: first.id, evaluatorKeyId: second.id };
+  const request = vault.deviceRequestConfig(selected);
+  assert.equal(request.generatorKeyId, undefined);
+  assert.equal(request.evaluatorKeyId, undefined);
+  state.settings.mode = 'balanced'; second.lastUsed = 100;
+  state.keys.find(key => key.id === second.id).lastUsed = 100;
+  assert.equal(vault.deviceCandidates(state, defaultConfig, 'generator')[0].id, first.id);
+  stored.set('transly.ai-keys.v2:broken', '{bad');
+  assert.throws(() => vault.readDeviceVault('broken'));
+  assert.equal(stored.get('transly.ai-keys.v2:broken'), '{bad');
+  delete globalThis.window; delete globalThis.localStorage;
+});

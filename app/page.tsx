@@ -8,13 +8,13 @@ import { Review } from '@/components/transly/review';
 import { api, ErrorBanner, Processing, Modal } from '@/components/transly/ui';
 import { challengeSchema, configSchema, defaultConfig, evaluationSchema, type PracticeConfig } from '@/lib/transly/schema';
 import { sampleAnswer, sampleChallenge, sampleConfig, sampleEvaluation } from '@/lib/transly/sample';
-import { modelLabel, type Provider } from '@/lib/transly/config';
+import { modelLabel } from '@/lib/transly/config';
 import { roleReady } from '@/lib/transly/vault-types';
 import type { RoutingInfo } from '@/lib/transly/vault-types';
 
-import { loadDeviceKeys, deviceCredentialPayload } from '@/lib/transly/client-keys';
+import { readDeviceVault, writeDeviceVault, deviceVaultStatus, deviceCandidates, deviceRequestConfig } from '@/lib/transly/device-vault';
+import { pagesMode, setSessionToken } from '@/lib/transly/transport';
 import { useAccountHistory } from '@/hooks/use-account-history';
-import { AccountPanel } from '@/components/transly/account-panel';
 
 type View = 'setup' | 'practice' | 'review';
 type Confirmation = 'replace' | 'sample-replace' | 'submit';
@@ -24,20 +24,10 @@ export default function Home() {
   const [config, setConfig] = useState<PracticeConfig>(defaultConfig);
   const history = useAccountHistory();
   const { session, setSession, ready, storageFailed } = history;
-  const [accountOpen, setAccountOpen] = useState(false);
   const [view, setView] = useState<View>('setup');
   const [settings, setSettings] = useState(false);
   const [busy, setBusy] = useState<'generate' | 'evaluate' | null>(null);
-  const initialLocalKeys = typeof window !== 'undefined' ? loadDeviceKeys() : {};
-  const hasInitialKeys = Boolean(initialLocalKeys.gemini || initialLocalKeys.generator || initialLocalKeys.evaluator);
-  const initialProviders: Provider[] = hasInitialKeys ? ['gemini'] : [];
-  const [status, setStatus] = useState<KeyStatus>({
-    generator: hasInitialKeys,
-    evaluator: hasInitialKeys,
-    custom: hasInitialKeys,
-    server: false,
-    legacyProviders: initialProviders,
-  });
+  const [status, setStatus] = useState<KeyStatus>({ generator: false, evaluator: false, custom: false, server: false });
   const [error, setError] = useState('');
   const [routingMessage, setRoutingMessage] = useState('');
   const [configStorageFailed, setConfigStorageFailed] = useState(false);
@@ -47,7 +37,7 @@ export default function Home() {
   const current = useRef(session); current.current = session;
   const accountOwner = useRef(history.user?.id || 'guest');
   accountOwner.current = history.user?.id || 'guest';
-  useEffect(() => { if (history.recoveryRequired) setAccountOpen(true); }, [history.recoveryRequired]);
+  useEffect(() => { if (history.recoveryRequired) setSettings(true); }, [history.recoveryRequired]);
 
   const navigate = useCallback((next: View) => {
     setView(next);
@@ -57,10 +47,6 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    try {
-      const c = configSchema.safeParse(JSON.parse(localStorage.getItem(CONFIG) || 'null'));
-      if (c.success) setConfig(c.data);
-    } catch { setConfigStorageFailed(true); }
     const route = () => {
       const s = current.current;
       const h = window.location.hash;
@@ -70,21 +56,6 @@ export default function Home() {
     route();
     window.addEventListener('hashchange', route);
     window.addEventListener('popstate', route);
-    const localKeys = loadDeviceKeys();
-    api<KeyStatus>('/api/credentials', undefined, 'GET')
-      .then(async (s) => {
-        if (!s.account && !s.custom && (localKeys.gemini || localKeys.generator || localKeys.evaluator)) {
-          try {
-            const synced = await api<KeyStatus>('/api/credentials', deviceCredentialPayload(localKeys), 'POST');
-            setStatus(synced);
-            return;
-          } catch {
-            // Keep status from GET if sync fails
-          }
-        }
-        setStatus(s);
-      })
-      .catch(() => setError('Pengaturan AI belum dapat dimuat. Coba buka Pengaturan AI atau muat ulang halaman.'));
     return () => { window.removeEventListener('hashchange', route); window.removeEventListener('popstate', route); };
   }, []);
 
@@ -98,10 +69,18 @@ export default function Home() {
 
   useEffect(() => {
     if (!ready) return;
+    const owner = history.user?.id || 'guest';
+    let active = true;
+    setSessionToken('');
     try {
-      localStorage.setItem(CONFIG, JSON.stringify(config));
-    } catch { setConfigStorageFailed(true); }
-  }, [config, ready]);
+      const stored = localStorage.getItem(CONFIG + ':' + owner) || (owner === 'guest' ? localStorage.getItem(CONFIG) : null);
+      const parsed = configSchema.safeParse(JSON.parse(stored || 'null'));
+      setConfig(parsed.success ? parsed.data : defaultConfig);
+      setStatus(deviceVaultStatus(readDeviceVault(owner)));
+    } catch (e) { setStatus({ device: true, generator: false, evaluator: false, custom: false, server: false }); setError((e as Error).message); }
+    if (!pagesMode) void api<KeyStatus>('/api/credentials', undefined, 'GET').then(next => { if (active && next.account) setStatus(next); }).catch(() => {});
+    return () => { active = false; };
+  }, [ready, history.user?.id]);
   useEffect(() => {
     const protect = (e: BeforeUnloadEvent) => { if (busy) e.preventDefault(); };
     window.addEventListener('beforeunload', protect);
@@ -110,6 +89,7 @@ export default function Home() {
 
   const changeConfig = (next: PracticeConfig) => {
     setConfig(next);
+    try { localStorage.setItem(CONFIG + ':' + accountOwner.current, JSON.stringify(next)); } catch { setConfigStorageFailed(true); }
     if (session && !session.result && view === 'practice' && !session.sample) {
       setSession({ ...session, config: { ...session.config, evaluator: next.evaluator, evaluatorKeyId: next.evaluatorKeyId, evaluatorFallback: next.evaluatorFallback } });
     }
@@ -117,7 +97,7 @@ export default function Home() {
   const resume = () => { if (session) navigate(session.result ? 'review' : 'practice'); };
   function start() {
     setError('');
-    if (!roleReady(status, config, 'generator') || !roleReady(status, config, 'evaluator')) { setSettings(true); return; }
+    if (!ready || !roleReady(status, config, 'generator') || !roleReady(status, config, 'evaluator')) { setSettings(true); return; }
     if (session && !session.result) setConfirm('replace');
     else void generate();
   }
@@ -132,12 +112,49 @@ export default function Home() {
     setSession({ config: sampleConfig, challenge: sampleChallenge, answer: sampleAnswer, deadline: now + 5 * 60000, startedAt: now, sample: true });
     navigate('practice');
   }
+  async function requestAI<T>(url: string, practiceConfig: PracticeConfig, body: Record<string, unknown> = {}): Promise<T> {
+    if (!status.device) return api<T>(url, { ...practiceConfig, ...body });
+    const owner = accountOwner.current;
+    const role = url === '/api/evaluate' ? 'evaluator' : 'generator';
+    const vault = readDeviceVault(owner);
+    const candidates = deviceCandidates(vault, practiceConfig, role).slice(0, vault.settings.maxAttempts);
+    if (!candidates.length) throw new Error('Pilih API key aktif untuk peran ini di Pengaturan AI.');
+    let failure: unknown;
+    const requestId = crypto.randomUUID();
+    for (const [index, key] of candidates.entries()) {
+      const startedAt = Date.now();
+      if (accountOwner.current !== owner) { setSessionToken(''); throw new Error('Akun berubah. Silakan mulai kembali.'); }
+      try {
+        await api('/api/credentials', { generator: key.secret, evaluator: key.secret });
+        if (accountOwner.current !== owner) { setSessionToken(''); throw new Error('Akun berubah. Silakan mulai kembali.'); }
+        const result = await api<T>(url, { ...deviceRequestConfig(practiceConfig), ...body });
+        if (accountOwner.current !== owner) { setSessionToken(''); throw new Error('Akun berubah. Silakan mulai kembali.'); }
+        const latest = readDeviceVault(owner);
+        latest.events = [...(latest.events || []), { keyName: key.name, model: practiceConfig[role], role, outcome: 'SUCCESS', duration: Date.now() - startedAt, attempt: index + 1, requestId, createdAt: Date.now() }].slice(-100);
+        const used = latest.keys.find(item => item.id === key.id);
+        if (used) { used.lastUsed = Date.now(); used.successes++; }
+        try { writeDeviceVault(owner, latest); setStatus(deviceVaultStatus(latest)); } catch { setError('Hasil AI berhasil diterima, tetapi statistik penggunaan belum tersimpan.'); }
+        return result;
+      } catch (e) {
+        failure = e;
+        if (accountOwner.current !== owner) throw e;
+        const latest = readDeviceVault(owner);
+        latest.events = [...(latest.events || []), { keyName: key.name, model: practiceConfig[role], role, outcome: (e as Error & { code?: string }).code || 'NETWORK_ERROR', duration: Date.now() - startedAt, attempt: index + 1, requestId, createdAt: Date.now() }].slice(-100);
+        const used = latest.keys.find(item => item.id === key.id);
+        if (used) { used.lastUsed = Date.now(); used.failures++; }
+        try { writeDeviceVault(owner, latest); setStatus(deviceVaultStatus(latest)); } catch { /* Original request error remains actionable. */ }
+        // Retry only another key for verified access/quota failures; never repeat a key.
+        if (!['INVALID_KEY', 'KEY_PERMISSION_DENIED', 'QUOTA_EXCEEDED', 'RATE_LIMIT'].includes((e as Error & { code?: string }).code || '')) throw e;
+      }
+    }
+    throw failure;
+  }
   async function generate() {
     if (locked.current) return;
     const actionOwner = accountOwner.current;
     locked.current = true; setConfirm(null); setError(''); setRoutingMessage(''); setBusy('generate'); lastAction.current = 'generate';
     try {
-      const data = await api<{ routing?: RoutingInfo }>('/api/generate', config);
+      const data = await requestAI<{ routing?: RoutingInfo }>('/api/generate', config);
       if (accountOwner.current !== actionOwner) throw new Error('Akun berubah saat latihan dibuat. Silakan mulai latihan pada akun yang sedang masuk.');
       const challenge = challengeSchema.parse(data);
       if (data.routing?.fallback) setRoutingMessage(`Latihan berhasil setelah ${data.routing.attempts.length} percobaan. Menggunakan ${data.routing.attempts.at(-1)?.keyName} · ${modelLabel(data.routing.model)}.`);
@@ -171,7 +188,7 @@ export default function Home() {
     }
     locked.current = true; setRoutingMessage(''); setBusy('evaluate'); lastAction.current = 'evaluate';
     try {
-      const data = await api<{ routing?: RoutingInfo }>('/api/evaluate', { config: session.config, sourceText: session.challenge.sourceText, userTranslation: session.answer });
+      const data = await requestAI<{ routing?: RoutingInfo }>('/api/evaluate', session.config, { config: status.device ? deviceRequestConfig(session.config) : session.config, sourceText: session.challenge.sourceText, userTranslation: session.answer });
       if (accountOwner.current !== actionOwner) throw new Error('Akun berubah saat evaluasi berjalan. Draft tetap tersimpan pada akun asal.');
       const result = evaluationSchema.parse(data);
       if (data.routing?.fallback) setRoutingMessage(`Evaluasi berhasil setelah ${data.routing.attempts.length} percobaan. Menggunakan ${data.routing.attempts.at(-1)?.keyName} · ${modelLabel(data.routing.model)}.`);
@@ -184,13 +201,11 @@ export default function Home() {
   const confirmationBody = confirm === 'sample-replace' ? 'Draft latihan saat ini akan diganti dengan teks, jawaban, dan evaluasi contoh.' : confirm === 'replace' ? 'Draft latihan saat ini akan diganti setelah teks baru berhasil dibuat.' : session?.sample ? 'Evaluasi ilustratif ini hanya menjelaskan jawaban contoh, tanpa panggilan AI.' : session?.answer.trim() ? 'Terjemahan akan dikunci dan AI mulai meninjau jawabanmu. Pastikan semua kalimat sudah selesai.' : 'Jawabanmu masih kosong. Kamu tetap dapat melihat versi ideal, tetapi nilai pengerjaan adalah 0.';
 
   return <div className="app-shell">
-    <header className="site-header"><div className="header-inner"><button className="brand" onClick={() => { if (!busy) navigate('setup'); }} aria-label="Transly, beranda"><span className="brand-mark"><Languages size={23}/></span>transly<span className="brand-dot">.</span></button><nav aria-label="Navigasi utama"><button className={view === 'setup' ? 'active' : ''} onClick={() => { if (!busy) navigate('setup'); }}>Latihan</button>{session && <button className={view !== 'setup' ? 'active' : ''} onClick={() => { if (!busy) resume(); }}>{session.result ? 'Evaluasi' : 'Sesi aktif'}</button>}</nav><div className="header-actions"><button className="settings-button" onClick={() => setAccountOpen(true)} disabled={Boolean(busy) || !ready}>Akun & riwayat</button><button className="settings-button" aria-label="Pengaturan AI" onClick={() => setSettings(true)} disabled={Boolean(busy)}><SlidersHorizontal size={18}/><span>Pengaturan AI</span></button></div></div></header>
+    <header className="site-header"><div className="header-inner"><button className="brand" onClick={() => { if (!busy) navigate('setup'); }} aria-label="Transly, beranda"><span className="brand-mark"><Languages size={23}/></span>transly<span className="brand-dot">.</span></button><nav aria-label="Navigasi utama"><button className={view === 'setup' ? 'active' : ''} onClick={() => { if (!busy) navigate('setup'); }}>Latihan</button>{session && <button className={view !== 'setup' ? 'active' : ''} onClick={() => { if (!busy) resume(); }}>{session.result ? 'Evaluasi' : 'Sesi aktif'}</button>}</nav><div className="header-actions"><button className="settings-button" aria-label="Pengaturan AI" onClick={() => setSettings(true)} disabled={Boolean(busy) || !ready}><SlidersHorizontal size={18}/><span>Pengaturan AI</span></button></div></div></header>
     {error && <div className="global-error"><ErrorBanner message={error} onDismiss={() => setError('')}/><div className="error-actions"><button className="text-button" onClick={() => setSettings(true)}>Pengaturan AI</button>{lastAction.current && <button className="text-button" disabled={Boolean(busy)} onClick={() => lastAction.current === 'generate' ? void generate() : void evaluate()}>Coba lagi</button>}</div></div>}
     {routingMessage && <div className="routing-notice" role="status"><ShieldCheck size={17}/><span>{routingMessage}</span><button className="text-button" onClick={() => setRoutingMessage('')}>Tutup</button></div>}
     {!ready ? <div className="initial-load" role="status">Menyiapkan ruang latihan…</div> : busy ? <Processing evaluation={busy === 'evaluate'}/> : view === 'practice' && session ? <Practice session={session} onAnswer={answer => setSession({ ...session, answer })} onSubmit={submit} onSampleAnswer={() => setSession({ ...session, answer: sampleAnswer })} onSettings={() => setSettings(true)} storageFailed={storageFailed || configStorageFailed}/> : view === 'review' && session?.result ? <Review session={session} onNew={() => navigate('setup')}/> : <Setup config={config} onConfig={changeConfig} onStart={start} onSample={startSample} onSettings={() => setSettings(true)} status={status} session={session} onResume={resume}/>}
-    <footer className="site-footer"><span><Languages size={15}/>transly</span><span>Belajar memahami. Berlatih menerjemahkan.</span><span><ShieldCheck size={14}/>Key terenkripsi</span></footer>
-    <Settings open={settings} onClose={() => setSettings(false)} config={view === 'practice' && session ? { ...config, evaluator: session.config.evaluator, evaluatorKeyId: session.config.evaluatorKeyId, evaluatorFallback: session.config.evaluatorFallback } : config} onConfig={changeConfig} status={status} onStatus={setStatus}/>
-    <AccountPanel open={accountOpen} onClose={() => setAccountOpen(false)} history={history} onResume={id => { const saved = history.entries.find(entry => entry.session.id === id); if (saved) { history.selectSession(id); navigate(saved.session.result ? 'review' : 'practice'); } }}/>
+    <Settings history={history} onResume={id => { const saved = history.entries.find(entry => entry.session.id === id); if (saved) { history.selectSession(id); navigate(saved.session.result ? 'review' : 'practice'); } }} open={settings} onClose={() => setSettings(false)} config={view === 'practice' && session ? { ...config, evaluator: session.config.evaluator, evaluatorKeyId: session.config.evaluatorKeyId, evaluatorFallback: session.config.evaluatorFallback } : config} onConfig={changeConfig} status={status} onStatus={setStatus}/>
     <Modal open={Boolean(confirm)} onClose={() => setConfirm(null)} title={confirmationTitle}><div className="modal-body"><p className="muted">{confirmationBody}</p><div className="modal-actions"><button className="secondary-button" onClick={() => setConfirm(null)}>Kembali</button><button className="primary-button" onClick={() => confirm === 'replace' ? void generate() : confirm === 'sample-replace' ? createSample() : void evaluate()}>{confirm === 'replace' ? 'Buat latihan baru' : confirm === 'sample-replace' ? 'Buka sampel' : session?.sample ? 'Lihat contoh' : 'Evaluasi sekarang'}</button></div></div></Modal>
   </div>;
 }
