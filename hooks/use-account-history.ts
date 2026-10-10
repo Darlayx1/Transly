@@ -115,9 +115,12 @@ export function useAccountHistory() {
     mounted.current = true;
     const client = accountClient();
     let subscription: { unsubscribe: () => void } | undefined;
+    let disposed = false;
+    let initialized = false;
+    let authRevision = 0;
 
     const selectOwner = (nextUser: User | null, authSession?: Session | null) => {
-      if (!mounted.current) return;
+      if (disposed || !mounted.current) return;
       const nextOwner = getStorageOwner(nextUser?.id);
       const prevOwner = owner.current;
 
@@ -125,7 +128,8 @@ export function useAccountHistory() {
       if (!nextUser) setRecoveryRequired(false);
 
       // If logging out or switching
-      if (prevOwner !== nextOwner) {
+      if (!initialized || prevOwner !== nextOwner) {
+        initialized = true;
         abortController.current?.abort();
         abortController.current = new AbortController();
         generation.current++;
@@ -180,15 +184,18 @@ export function useAccountHistory() {
     if (!client) {
       selectOwner(null);
     } else {
+      const initialAuthRevision = authRevision;
       subscription = client.auth.onAuthStateChange((event, authSession) => {
+        const eventRevision = ++authRevision;
         queueMicrotask(() => {
+          if (disposed || eventRevision !== authRevision) return;
           if (mounted.current && event === 'PASSWORD_RECOVERY') setRecoveryRequired(true);
           selectOwner(authSession?.user || null, authSession);
         });
       }).data.subscription;
 
       void client.auth.getSession().then(({ data, error }) => {
-        if (!mounted.current || (owner.current !== 'guest' && user)) return;
+        if (disposed || !mounted.current || authRevision !== initialAuthRevision) return;
         if (error) {
           setMessage(accountError(error));
           selectOwner(null);
@@ -196,19 +203,24 @@ export function useAccountHistory() {
           selectOwner(data.session?.user || null, data.session);
         }
       }).catch(() => {
-        if (!owner.current) selectOwner(null);
+        if (!disposed && authRevision === initialAuthRevision) {
+          setMessage('Sesi akun belum dapat dimuat. Coba masuk kembali.');
+          selectOwner(null);
+        }
       });
 
       // Handle multi-tab authentication synchronization
       const handleStorageChange = (e: StorageEvent) => {
         if (e.key?.includes('supabase.auth.token') || e.key === 'transly.auth_token.v1') {
+          const requestRevision = ++authRevision;
           void client.auth.getSession().then(({ data }) => {
-            if (mounted.current) selectOwner(data.session?.user || null, data.session);
-          });
+            if (!disposed && mounted.current && requestRevision === authRevision) selectOwner(data.session?.user || null, data.session);
+          }).catch(() => { /* Keep the current owner when a cross-tab refresh fails. */ });
         }
       };
       window.addEventListener('storage', handleStorageChange);
       return () => {
+        disposed = true;
         window.removeEventListener('storage', handleStorageChange);
         mounted.current = false;
         generation.current++;
@@ -218,12 +230,15 @@ export function useAccountHistory() {
     }
 
     return () => {
+      disposed = true;
       mounted.current = false;
       generation.current++;
       abortController.current?.abort();
       subscription?.unsubscribe();
     };
-  }, [persist, sync, user]);
+  // Auth events update user state; depending on that state would resubscribe
+  // and trigger another INITIAL_SESSION event on every update.
+  }, [persist, sync]);
 
   useEffect(() => {
     if (!ready || !user) return;
