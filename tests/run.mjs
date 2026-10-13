@@ -11,9 +11,9 @@ for (const name of ['config', 'provider-adapters', 'vault-types', 'schema', 'ser
   const source = (await readFile(`lib/transly/${name}.ts`, 'utf8')).replace(/from '(\.\/[^']+)'/g, "from '$1.js'").replace("import { env } from 'cloudflare:workers';", 'const env = {};');
   await writeFile(path.join(dir, `${name}.js`), ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText);
 }
-const { normalizeEvaluation, defaultConfig, challengeSchema, evaluationSchema } = await import(pathToFileURL(path.join(dir, 'schema.js')));
+const { normalizeEvaluation, defaultConfig, configSchema, sessionSchema, challengeSchema, evaluationSchema } = await import(pathToFileURL(path.join(dir, 'schema.js')));
 const server = await import(pathToFileURL(path.join(dir, 'server.js')));
-const { models } = await import(pathToFileURL(path.join(dir, 'config.js')));
+const { models, lengthIds, lengths } = await import(pathToFileURL(path.join(dir, 'config.js')));
 const sample = await import(pathToFileURL(path.join(dir, 'sample.js')));
 const raw = { overallScore: 80, summaryFeedback: 'Pertahankan makna sumber.', strengths: ['Konteks jelas.'], weaknesses: ['Periksa negasi.'], sourceText: 'ignored', userTranslation: 'ignored', idealTranslation: 'Saya tidak pergi.', categoryScores: { accuracy: 80, grammar: 80, wordChoice: 80, naturalness: 80, completeness: 80, style: 80 }, annotations: [] };
 const ann = (quote, start = 99, severity = 'major') => ({ start, end: start + quote.length, originalText: quote, severity, explanation: 'Makna berbeda.', context: 'Sumber menggunakan negasi.', suggestion: 'Pertahankan negasi.', improvedText: 'tidak pergi' });
@@ -162,7 +162,33 @@ await test('retry transient 502 error and succeed on second attempt', async () =
 await test('challenge validation with challengeSchema', () => {
   const valid = { title: 'Test Challenge', sourceText: 'This is a sample source text for testing CEFR level B1 translation.', topic: 'General', style: 'Neutral' };
   assert.equal(challengeSchema.safeParse(valid).success, true);
-  assert.equal(challengeSchema.safeParse({ ...valid, sourceText: 'too short' }).success, false);
+  assert.equal(challengeSchema.safeParse({ ...valid, sourceText: '   ' }).success, false);
+});
+
+await test('six length modes accept short challenges and preserve them in sessions', () => {
+  assert.equal(lengthIds.length, 6);
+  for (const length of lengthIds) {
+    const config = configSchema.parse({ ...defaultConfig, length });
+    const challenge = challengeSchema.parse({ title: 'Small steps', sourceText: length === 'phrase' ? 'Small steps' : 'Every step matters.', topic: 'General', style: 'Neutral' });
+    const session = sessionSchema.parse({ config, challenge, answer: '', deadline: 1000, startedAt: 0 });
+    assert.equal(session.config.length, length);
+    assert.equal(session.challenge.sourceText, challenge.sourceText);
+    assert(lengths[length].min <= lengths[length].max);
+    assert(lengths[length].instruction.length > 0);
+  }
+  assert.match(lengths.phrase.instruction, /exactly one standalone phrase/);
+  assert.match(lengths.sentence.instruction, /exactly one complete sentence/);
+  assert.equal(configSchema.safeParse({ ...defaultConfig, length: 'invalid' }).success, false);
+});
+
+await test('custom topics, styles and durations have no preset or 120-minute restriction', () => {
+  for (const duration of [0.5, 137, 10000]) {
+    const parsed = configSchema.parse({ ...defaultConfig, duration, topic: 'Kota masa depan', style: 'Santai dan reflektif' });
+    assert.equal(parsed.duration, duration);
+    assert.equal(parsed.topic, 'Kota masa depan');
+    assert.equal(parsed.style, 'Santai dan reflektif');
+  }
+  for (const duration of [0, -1, Infinity, NaN]) assert.equal(configSchema.safeParse({ ...defaultConfig, duration }).success, false);
 });
 
 await test('evaluation validation with evaluationSchema', () => {

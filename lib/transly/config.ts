@@ -30,7 +30,15 @@ export const defaultModelId = models.find(model => model.id === 'gemini-3.5-flas
 export const defaultProviderModel = (_provider?: Provider) => defaultModelId;
 export const topics = ['General', 'Technology', 'Science', 'Health', 'Education', 'Business', 'Culture', 'Environment', 'Daily Life', 'History', 'Entertainment'];
 export const styles = ['Casual', 'Neutral', 'Formal', 'Academic', 'Professional', 'Conversational', 'Narrative', 'News Style', 'Descriptive'];
-export const lengths = { short: { label: 'Pendek', range: '60–100', min: 60, max: 100 }, medium: { label: 'Sedang', range: '150–220', min: 150, max: 220 }, long: { label: 'Panjang', range: '300–450', min: 300, max: 450 } };
+export const lengthIds = ['phrase', 'sentence', 'paragraph', 'short', 'medium', 'long'] as const;
+export const lengths = {
+  phrase: { label: '1 frasa', range: '2–8', min: 2, max: 8, instruction: 'Write exactly one standalone phrase, not a complete sentence. No paragraphs or extra text.' },
+  sentence: { label: '1 kalimat', range: '5–25', min: 5, max: 25, instruction: 'Write exactly one complete sentence. No additional sentences or paragraphs.' },
+  paragraph: { label: '1 paragraf', range: '25–50', min: 25, max: 50, instruction: 'Write exactly one concise paragraph of two to four sentences.' },
+  short: { label: 'Pendek', range: '60–100', min: 60, max: 100, instruction: 'Write a short coherent passage. Use paragraphs for readability.' },
+  medium: { label: 'Sedang', range: '150–220', min: 150, max: 220, instruction: 'Write a medium-length coherent passage. Use paragraphs for readability.' },
+  long: { label: 'Panjang', range: '300–450', min: 300, max: 450, instruction: 'Write a long coherent passage. Use paragraphs for readability.' },
+};
 export const severityInfo = {
   suggestion: { label: 'Suggestion', name: 'Saran', detail: 'Alternatif yang lebih natural; bukan kesalahan.' },
   minor: { label: 'Minor', name: 'Kecil', detail: 'Perbaikan kecil pada diksi, tata bahasa, atau tanda baca.' },

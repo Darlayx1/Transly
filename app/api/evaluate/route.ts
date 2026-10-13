@@ -5,7 +5,7 @@ import { evaluationJsonSchema } from '@/lib/transly/output-schema';
 import { readBody, readCredentials, resolveKey, throttle, generateJson, AppError, errorResponse, json } from '@/lib/transly/server';
 import { account, runWithVault } from '@/lib/transly/vault';
 import { getVerifiedAccount } from '@/lib/transly/account-auth';
-const inputSchema = z.object({ config: configSchema, sourceText: z.string().min(30).max(12000), userTranslation: z.string().max(16000) });
+const inputSchema = z.object({ config: configSchema, sourceText: z.string().trim().min(1).max(12000), userTranslation: z.string().max(16000) });
 export async function POST(request: Request) {
   try {
     const input = inputSchema.parse(await readBody(request));

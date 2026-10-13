@@ -83,6 +83,26 @@ try {
   assert.equal(invalid.status, 503, 'invalid device token must not bypass account vault routing');
   assert.equal(upstreamCalls, 2);
   console.log('PASS invalid device tokens and server key selections cannot bypass vault isolation');
+  for (const [length, sourceText, instruction] of [['phrase', 'Small steps', 'exactly one standalone phrase'], ['sentence', 'Every step matters.', 'exactly one complete sentence']]) {
+    const briefConfig = { ...config, length };
+    let evaluation = false;
+    globalThis.fetch = async (_url, options) => {
+      const prompt = JSON.parse(options.body).contents[0].parts[0].text;
+      if (!evaluation) assert(prompt.includes(instruction), 'generation must specify the selected text format');
+      return Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify(evaluation ? {
+        overallScore: 80, summaryFeedback: 'Makna sudah tepat.', strengths: ['Makna'], weaknesses: [], idealTranslation: 'Langkah kecil.', annotations: [],
+        categoryScores: { accuracy: 80, grammar: 80, wordChoice: 80, naturalness: 80, completeness: 80, style: 80 },
+      } : { ...challenge, sourceText }) }] } }] });
+    };
+    const generatedBrief = await routes.generate.POST(request('generate', briefConfig, status.sessionToken));
+    assert.equal(generatedBrief.status, 200, JSON.stringify(await generatedBrief.clone().json()));
+    assert.equal((await generatedBrief.json()).sourceText, sourceText);
+    evaluation = true;
+    const evaluatedBrief = await routes.evaluate.POST(request('evaluate', { config: briefConfig, sourceText, userTranslation: 'Langkah kecil.' }, status.sessionToken));
+    assert.equal(evaluatedBrief.status, 200, JSON.stringify(await evaluatedBrief.clone().json()));
+    assert.equal((await evaluatedBrief.json()).sourceText, sourceText);
+  }
+  console.log('PASS phrase and sentence generation, format prompts, and evaluation accept texts below 30 characters');
 } finally {
   globalThis.fetch = originalFetch;
 }

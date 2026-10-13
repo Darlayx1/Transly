@@ -110,7 +110,8 @@ try {
   await panel(controls).getByRole('button', { name: 'Simpan API key', exact: true }).click();
   await panel(controls).getByText('API key berhasil disimpan.', { exact: true }).waitFor();
   await panel(controls).getByRole('button', { name: 'Model & penggunaan', exact: true }).click();
-  await panel(controls).getByLabel('API key penilai terjemahan', { exact: true }).selectOption({ label: 'Key kedua · Belum diuji' });
+  await panel(controls).getByRole('combobox', { name: 'API key penilai terjemahan', exact: true }).click();
+  await panel(controls).getByRole('option', { name: 'Key kedua', exact: true }).click();
   await closePanel(controls);
   await controls.reload(); await openPanel(controls);
   await panel(controls).getByRole('button', { name: 'API key', exact: true }).click();
@@ -154,7 +155,7 @@ try {
     return route.fulfill({ json: { overallScore: 80, summaryFeedback: 'Makna sudah tepat.', strengths: ['Makna'], weaknesses: [], sourceText: payload.sourceText, userTranslation: payload.userTranslation, idealTranslation: 'Terjemahan contoh.', categoryScores: { accuracy: 80, grammar: 80, wordChoice: 80, naturalness: 80, completeness: 80, style: 80 }, annotations: [] } });
   });
   await closePanel(controls);
-  await controls.getByRole('button', { name: 'Buat latihan', exact: true }).click();
+  await controls.getByRole('button', { name: 'Mulai', exact: true }).click();
   await controls.getByLabel('Terjemahanmu', { exact: true }).fill('Jawaban uji untuk key yang dipilih.');
   await controls.getByRole('button', { name: 'Kirim terjemahan', exact: true }).click();
   await controls.getByRole('button', { name: 'Evaluasi sekarang', exact: true }).click();
@@ -169,7 +170,9 @@ try {
   console.log('PASS four tabs, per-key management, masking, persistence, unsaved guard and account key isolation');
 
   const page = await createPage();
-  await page.getByRole('button', { name: /Coba alur sampel/ }).click();
+  await page.getByRole('button', { name: 'Pengaturan AI', exact: true }).click();
+  await panel(page).getByRole('button', { name: 'Model & penggunaan', exact: true }).click();
+  await panel(page).getByRole('button', { name: /Coba alur sampel/ }).click();
   await page.getByLabel('Terjemahanmu', { exact: true }).fill('Draft tamu yang harus tetap terpisah.');
   await page.reload();
   assert.equal(await page.getByLabel('Terjemahanmu', { exact: true }).inputValue(), 'Draft tamu yang harus tetap terpisah.');

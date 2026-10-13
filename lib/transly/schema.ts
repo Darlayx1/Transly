@@ -1,9 +1,9 @@
 import { z } from 'zod';
-import { levels, models, defaultModelId, modelProvider } from './config';
+import { levels, lengthIds, models, defaultModelId, modelProvider } from './config';
 
 export const modelSchema = z.string().refine(v => models.some(m => m.id === v), 'Model tidak tersedia.');
 export const configSchema = z.object({
-  level: z.enum(levels), length: z.enum(['short', 'medium', 'long']), duration: z.number().int().min(1).max(120),
+  level: z.enum(levels), length: z.enum(lengthIds), duration: z.number().finite().positive(),
   topic: z.string().max(120), style: z.string().max(60), generator: modelSchema, evaluator: modelSchema,
   generatorKeyId: z.string().uuid().optional(), evaluatorKeyId: z.string().uuid().optional(),
   generatorFallback: modelSchema.optional(), evaluatorFallback: modelSchema.optional(),
@@ -15,7 +15,7 @@ export function withRoleModel(config: PracticeConfig, role: 'generator' | 'evalu
   return { ...config, [role]: model, [keyField]: modelProvider(model) === modelProvider(config[role]) ? config[keyField] : undefined, [fallbackField]: config[fallbackField] && modelProvider(config[fallbackField]!) !== modelProvider(model) ? config[fallbackField] : undefined };
 }
 export const defaultConfig: PracticeConfig = { level: 'B1', length: 'medium', duration: 15, topic: '', style: '', generator: defaultModelId, evaluator: defaultModelId };
-export const challengeSchema = z.object({ title: z.string().min(1).max(200), sourceText: z.string().min(30).max(12000), topic: z.string().min(1).max(120), style: z.string().min(1).max(60) });
+export const challengeSchema = z.object({ title: z.string().min(1).max(200), sourceText: z.string().trim().min(1).max(12000), topic: z.string().min(1).max(120), style: z.string().min(1).max(60) });
 export type Challenge = z.infer<typeof challengeSchema>;
 export const annotationSchema = z.object({
   start: z.number().int().nonnegative(), end: z.number().int().nonnegative(), originalText: z.string().min(1).max(8000),
